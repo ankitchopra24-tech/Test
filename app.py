@@ -13,9 +13,31 @@ query = st.text_input("💬 Type your question (e.g., 'Best offer on Emirates Bu
 
 if query:
     st.write("🔍 Searching offers...")
-    results = df[
-        df.apply(lambda row: any(re.search(term, str(row), re.IGNORECASE) for term in query.split()), axis=1)
-    ]
+   import difflib
+
+def find_best_offer(query, df):
+    query = query.lower()
+
+    # Prioritize airline name or IATA code
+    best_match = None
+    best_score = 0
+
+    for _, row in df.iterrows():
+        text = f"{row['Airline']} {row['IATA']} {row['Class']}".lower()
+        score = difflib.SequenceMatcher(None, query, text).ratio()
+
+        if score > best_score:
+            best_score = score
+            best_match = row
+
+    # Threshold to avoid false matches
+    if best_match is not None and best_score > 0.3:
+        return [best_match]
+    else:
+        return []
+
+results = find_best_offer(query, df)
+
 
     if not results.empty:
         for _, row in results.iterrows():
