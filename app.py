@@ -9,7 +9,7 @@ st.title("✈️ Airline Offer Finder Bot")
 st.markdown("Ask me about the best airline deals from your offer sheet!")
 
 # ---- LOAD DATA ----
-df = pd.read_excel("sample_offers.xlsx")
+df = pd.read_excel("sample_offers (3).xlsx")
 
 # ---- QUERY INPUT ----
 query = st.text_input("💬 Type your question (e.g., 'Best offer on Emirates Business Class')")
