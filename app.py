@@ -2,18 +2,21 @@ def find_best_offer(query, df, col_map):
     query = query.lower().strip()
     results = df.copy()
 
-    # --- 1️⃣ Airline detection ---
-    airline_hits = []
-    for airline in df[col_map["airline"]].unique():
-        if airline.lower() in query:
-            airline_hits.append(airline.lower())
-    for code in df[col_map["iata"]].unique():
-        if code.lower() in query:
-            airline_hits.append(code.lower())
+    # --- 1️⃣ Airline detection (by name or IATA code) ---
+    matched_airlines = []
+    for _, row in df.iterrows():
+        airline_name = str(row[col_map["airline"]]).lower()
+        airline_code = str(row[col_map["iata"]]).lower()
+        if airline_name in query or airline_code in query:
+            matched_airlines.append((airline_name, airline_code))
 
-    if airline_hits:
-        results = results[results[col_map["airline"]].str.lower().isin(airline_hits) |
-                          results[col_map["iata"]].str.lower().isin(airline_hits)]
+    if matched_airlines:
+        matched_names = [a[0] for a in matched_airlines]
+        matched_codes = [a[1] for a in matched_airlines]
+        results = df[
+            df[col_map["airline"]].str.lower().isin(matched_names) |
+            df[col_map["iata"]].str.lower().isin(matched_codes)
+        ]
 
     # --- 2️⃣ Cabin class detection ---
     if "business" in query:
@@ -27,11 +30,11 @@ def find_best_offer(query, df, col_map):
     elif any(loc in query for loc in ["europe", "france", "paris"]):
         results = results[results[col_map["sector"]].str.contains("international", case=False, na=False)]
 
-    # --- 4️⃣ Rank by best deal ---
+    # --- 4️⃣ Rank by best deal (if applicable) ---
     if col_map["deal"] in results.columns:
         results = results.sort_values(by=col_map["deal"], ascending=False)
 
-    # --- 5️⃣ Fallback if nothing matched ---
+    # --- 5️⃣ Fallback fuzzy logic if no airline found ---
     if results.empty:
         import difflib
         best_match = None
@@ -47,5 +50,5 @@ def find_best_offer(query, df, col_map):
         else:
             return []
 
-    # Return top 3 matches for clarity
+    # --- Return top results ---
     return results.head(3).to_dict(orient="records")
