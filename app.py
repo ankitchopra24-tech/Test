@@ -8,7 +8,7 @@ st.title("✈️ Airline Offer Finder Bot")
 st.markdown("Ask me about the best airline deals from your updated offer sheet!")
 
 # ---- LOAD DATA ----
-df = pd.read_excel("sample_offers.xlsx")
+df = pd.read_excel("sample_offers (3).xlsx")
 df.columns = df.columns.str.strip().str.lower()
 
 # ---- QUERY INPUT ----
