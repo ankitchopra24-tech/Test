@@ -11,13 +11,13 @@ st.markdown("Ask me about the best airline deals from your updated offer sheet!"
 try:
     df = pd.read_excel("sample_offers.xlsx")
 except FileNotFoundError:
-    st.error("❌ Offer file not found. Please ensure 'sample_offers.xlsx' is uploaded to your GitHub repo.")
+    st.error("❌ Offer file not found. Please ensure 'sample_offers.xlsx' is in your repo.")
     st.stop()
 
 # Normalize column names
 df.columns = df.columns.str.strip().str.lower()
 
-# Dynamic column mapping (so it works even if you rename columns later)
+# Dynamic mapping to handle any future renames
 col_map = {
     "airline": next((c for c in df.columns if "airline" in c), None),
     "iata": next((c for c in df.columns if "iata" in c), None),
@@ -30,73 +30,65 @@ col_map = {
     "conditions": next((c for c in df.columns if "condition" in c), None)
 }
 
-# ---- SMART SEARCH FUNCTION ----
+# ---- SEARCH FUNCTION ----
 def find_best_offer(query, df, col_map):
     query = query.lower().strip()
     results = df.copy()
 
-    # --- 1️⃣ Exact Airline / IATA match ---
-    for code in df[col_map["iata"]].dropna().unique():
-        if f" {code.lower()} " in f" {query} " or query.startswith(code.lower()):
-            results = df[df[col_map["iata"]].str.lower() == code.lower()]
-            break
-    for name in df[col_map["airline"]].dropna().unique():
-        if name.lower() in query:
-            results = df[df[col_map["airline"]].str.lower() == name.lower()]
-            break
+    # --- 1️⃣ Detect airline by name or IATA ---
+    matched_airlines = []
+    for _, row in df.iterrows():
+        airline_name = str(row.get(col_map["airline"], "")).lower()
+        airline_code = str(row.get(col_map["iata"], "")).lower()
+        if airline_name in query or airline_code in query:
+            matched_airlines.append((airline_name, airline_code))
 
-    # --- 2️⃣ Cabin / class detection ---
+    if matched_airlines:
+        names = [a[0] for a in matched_airlines]
+        codes = [a[1] for a in matched_airlines]
+        results = df[
+            df[col_map["airline"]].str.lower().isin(names) |
+            df[col_map["iata"]].str.lower().isin(codes)
+        ]
+
+    # --- 2️⃣ Cabin class detection ---
     if "business" in query:
         results = results[results[col_map["cabin_class"]].str.contains("business", case=False, na=False)]
     elif "economy" in query:
         results = results[results[col_map["cabin_class"]].str.contains("economy", case=False, na=False)]
 
-    # --- 3️⃣ Location-aware route detection ---
-    location_keywords = {
-        "dubai": "middle east|dubai|uae|india",
-        "uae": "middle east|dubai|uae",
-        "india": "india|delhi|mumbai|chennai|bengaluru",
-        "europe": "europe|france|paris|london|amsterdam|germany|spain",
-        "usa": "usa|america|new york|atlanta|los angeles",
-        "australia": "australia|sydney|melbourne",
-        "asia": "asia|singapore|bangkok|tokyo|malaysia|hong kong",
-        "africa": "africa|nairobi|johannesburg|cairo"
-    }
+    # --- 3️⃣ Sector / route detection ---
+    if any(loc in query for loc in ["dubai", "uae", "middle east"]):
+        results = results[results[col_map["sector"]].str.contains("india", case=False, na=False)]
+    elif any(loc in query for loc in ["europe", "france", "paris"]):
+        results = results[results[col_map["sector"]].str.contains("international", case=False, na=False)]
 
-    for city, pattern in location_keywords.items():
-        if city in query:
-            results = df[
-                df[col_map["sector"]].str.contains(pattern, case=False, na=False) |
-                df[col_map["conditions"]].str.contains(pattern, case=False, na=False)
-            ]
-            break
-
-    # --- 4️⃣ Sort by highest deal value ---
-    if not results.empty and col_map["deal"] in results.columns:
+    # --- 4️⃣ Sort by best deal ---
+    if col_map["deal"] in results.columns:
         results = results.sort_values(by=col_map["deal"], ascending=False)
 
-    # --- 5️⃣ Fuzzy fallback (if no results) ---
+    # --- 5️⃣ Fallback fuzzy logic ---
     if results.empty:
         best_match = None
         best_score = 0.0
         for _, row in df.iterrows():
-            text = f"{row.get(col_map['airline'], '')} {row.get(col_map['iata'], '')} {row.get(col_map['sector'], '')}".lower()
+            text = f"{row.get(col_map['airline'], '')} {row.get(col_map['iata'], '')} {row.get(col_map['cabin_class'], '')}".lower()
             score = difflib.SequenceMatcher(None, query, text).ratio()
             if score > best_score:
                 best_score = score
                 best_match = row
-        if best_match is not None and best_score > 0.4:
+        if best_match is not None and best_score > 0.3:
             return [best_match.to_dict()]
         else:
             return []
 
-    # --- 6️⃣ Limit to top 5 results ---
-    return results.head(5).to_dict(orient="records")
+    # Return top 3 deals
+    return results.head(3).to_dict(orient="records")
 
-# ---- USER INPUT ----
-query = st.text_input("💬 Type your query (e.g., 'Best deal on EK Business Class to Dubai')")
+# ---- CHAT INPUT ----
+query = st.text_input("💬 Type your question (e.g., 'Best deal on EK Business Class to Dubai')")
 
-# ---- SEARCH EXECUTION ----
+# ---- EXECUTE SEARCH ----
 if query:
     st.write("🔍 Searching offers...")
     results = find_best_offer(query, df, col_map)
@@ -119,4 +111,4 @@ if query:
 
 # ---- FOOTER ----
 st.markdown("---")
-st.caption("🤖 Built by Video AI • Smart Offer Finder Bot v5.0 • Location & Airline Aware")
+st.caption("🤖 Built by Video AI • Smart Offer Finder Bot v4.0")
