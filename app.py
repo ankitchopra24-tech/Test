@@ -1,80 +1,51 @@
-import streamlit as st
-import pandas as pd
-import difflib
-
-# ---- PAGE SETUP ----
-st.set_page_config(page_title="Offer Finder Bot", page_icon="✈️")
-st.title("✈️ Airline Offer Finder Bot")
-st.markdown("Ask me about the best airline deals from your updated offer sheet!")
-
-# ---- LOAD DATA ----
-df = pd.read_excel("sample_offers.xlsx")
-df.columns = df.columns.str.strip().str.lower()
-
-# Handle special character column names safely
-col_map = {
-    "airline": next((c for c in df.columns if "airline" in c), None),
-    "iata": next((c for c in df.columns if "iata" in c), None),
-    "cabin_class": next((c for c in df.columns if "cabin" in c or "class" in c), None),
-    "deal": next((c for c in df.columns if "deal" in c), None),
-    "fare_basis": next((c for c in df.columns if "fare" in c), None),
-    "sector": next((c for c in df.columns if "sector" in c), None),
-    "valid_till": next((c for c in df.columns if "valid" in c), None),
-    "priority": next((c for c in df.columns if "priority" in c), None),
-    "conditions": next((c for c in df.columns if "condition" in c), None)
-}
-
-# ---- QUERY INPUT ----
-query = st.text_input("💬 Type your question (e.g., 'Best deal on Emirates Business Class')")
-
-# ---- SEARCH LOGIC ----
 def find_best_offer(query, df, col_map):
     query = query.lower().strip()
-    best_match = None
-    best_score = 0.0
+    results = df.copy()
 
-    for _, row in df.iterrows():
-        text_parts = [
-            str(row.get(col_map["airline"], "")),
-            str(row.get(col_map["iata"], "")),
-            str(row.get(col_map["cabin_class"], "")),
-        ]
-        text = " ".join(text_parts).lower()
-        score = difflib.SequenceMatcher(None, query, text).ratio()
-        if score > best_score:
-            best_score = score
-            best_match = row
+    # --- 1️⃣ Airline detection ---
+    airline_hits = []
+    for airline in df[col_map["airline"]].unique():
+        if airline.lower() in query:
+            airline_hits.append(airline.lower())
+    for code in df[col_map["iata"]].unique():
+        if code.lower() in query:
+            airline_hits.append(code.lower())
 
-    # Route / sector detection
-    if any(keyword in query for keyword in ["dubai", "uae", "middle east"]):
-        filtered = df[df[col_map["sector"]].str.contains("india", case=False, na=False)]
-        if not filtered.empty:
-            return filtered.to_dict(orient="records")
+    if airline_hits:
+        results = results[results[col_map["airline"]].str.lower().isin(airline_hits) |
+                          results[col_map["iata"]].str.lower().isin(airline_hits)]
 
-    if best_match is not None and best_score > 0.3:
-        return [best_match.to_dict()]
-    return []
+    # --- 2️⃣ Cabin class detection ---
+    if "business" in query:
+        results = results[results[col_map["cabin_class"]].str.contains("business", case=False, na=False)]
+    elif "economy" in query:
+        results = results[results[col_map["cabin_class"]].str.contains("economy", case=False, na=False)]
 
-# ---- DISPLAY RESULTS ----
-if query:
-    st.write("🔍 Searching offers...")
-    results = find_best_offer(query, df, col_map)
+    # --- 3️⃣ Sector / route detection ---
+    if any(loc in query for loc in ["dubai", "uae", "middle east"]):
+        results = results[results[col_map["sector"]].str.contains("india", case=False, na=False)]
+    elif any(loc in query for loc in ["europe", "france", "paris"]):
+        results = results[results[col_map["sector"]].str.contains("international", case=False, na=False)]
 
-    if results:
-        for row in results:
-            st.markdown(f"""
-            ✈️ **{row.get(col_map['airline'], 'Unknown')} ({row.get(col_map['iata'], 'N/A')})**
-            - **Cabin:** {row.get(col_map['cabin_class'], 'N/A')}
-            - **Deal:** {row.get(col_map['deal'], 'N/A')}%
-            - **Fare Basis:** {row.get(col_map['fare_basis'], 'N/A')}
-            - **Sector:** {row.get(col_map['sector'], 'N/A')}
-            - **Valid Till:** {row.get(col_map['valid_till'], 'N/A')}
-            - **Priority:** {row.get(col_map['priority'], 'N/A')}
-            - **Conditions:** {row.get(col_map['conditions'], 'N/A')}
-            ---
-            """)
-    else:
-        st.warning("No matching offers found. Try another airline, class, or route!")
+    # --- 4️⃣ Rank by best deal ---
+    if col_map["deal"] in results.columns:
+        results = results.sort_values(by=col_map["deal"], ascending=False)
 
-st.markdown("---")
-st.caption("🤖 Built by Video AI • Smart Offer Finder v3.2")
+    # --- 5️⃣ Fallback if nothing matched ---
+    if results.empty:
+        import difflib
+        best_match = None
+        best_score = 0.0
+        for _, row in df.iterrows():
+            text = f"{row[col_map['airline']]} {row[col_map['iata']]} {row[col_map['cabin_class']]}".lower()
+            score = difflib.SequenceMatcher(None, query, text).ratio()
+            if score > best_score:
+                best_score = score
+                best_match = row
+        if best_match is not None and best_score > 0.3:
+            return [best_match.to_dict()]
+        else:
+            return []
+
+    # Return top 3 matches for clarity
+    return results.head(3).to_dict(orient="records")
