@@ -1,3 +1,6 @@
+print("🚀 Zendesk sync started...")
+
+
 import requests
 import streamlit as st
 import pandas as pd
@@ -45,3 +48,6 @@ output_file = "zendesk_articles_raw.xlsx"
 df.to_excel(output_file, index=False)
 
 print(f"✅ Saved {len(df)} Zendesk articles to {output_file}")
+
+print("✅ Zendesk sync finished successfully")
+
