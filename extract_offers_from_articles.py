@@ -1,3 +1,6 @@
+print("🚀 Offer extraction script started")
+
+
 import pandas as pd
 import re
 from datetime import datetime
@@ -5,7 +8,16 @@ from datetime import datetime
 # -------------------------------------------------
 # LOAD RAW ZENDESK ARTICLES
 # -------------------------------------------------
+import os
+
+print("📂 Current directory files:", os.listdir("."))
+
+if not os.path.exists("zendesk_articles_raw.xlsx"):
+    raise FileNotFoundError("❌ zendesk_articles_raw.xlsx NOT FOUND")
+
 df = pd.read_excel("zendesk_articles_raw.xlsx")
+print(f"✅ Loaded {len(df)} Zendesk articles")
+
 
 offers = []
 
@@ -63,3 +75,6 @@ offers_df = pd.DataFrame(offers)
 offers_df.to_excel("offers_from_zendesk_articles.xlsx", index=False)
 
 print(f"✅ Extracted {len(offers_df)} offers from Zendesk articles")
+
+print("✅ Offer extraction script finished")
+
