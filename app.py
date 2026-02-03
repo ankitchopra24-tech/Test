@@ -1,3 +1,7 @@
+import sys
+import subprocess
+
+subprocess.run([sys.executable, "extract_offers_from_articles.py"])
 
 import streamlit as st
 import requests
