@@ -1,9 +1,3 @@
-import sys
-import subprocess
-
-subprocess.run([sys.executable, "zendesk_sync.py"])
-
-
 
 import streamlit as st
 import requests
