@@ -1,3 +1,22 @@
+import sys
+import subprocess
+import streamlit as st
+
+st.sidebar.markdown("## 🔧 Admin Actions")
+
+if st.sidebar.button("Run Offer Extraction"):
+    st.write("🚀 Running offer extraction...")
+    result = subprocess.run(
+        [sys.executable, "extract_offers_from_articles.py"],
+        capture_output=True,
+        text=True
+    )
+    st.code(result.stdout)
+    st.code(result.stderr)
+
+
+
+
 
 import streamlit as st
 import requests
