@@ -1,29 +1,26 @@
+import os
 import streamlit as st
 import requests
 import pandas as pd
-import os
-import sys
-import subprocess
-from datetime import datetime, timedelta
+import difflib
+from datetime import datetime
 
-# ==================================================
+# =====================================================
 # PAGE CONFIG
-# ==================================================
+# =====================================================
 st.set_page_config(page_title="Airline Offer Finder Bot", page_icon="✈️")
 st.title("✈️ Airline Offer Finder Bot")
 
-# ==================================================
-# ZENDESK AUTH (FROM SECRETS)
-# ==================================================
+# =====================================================
+# ZENDESK AUTH (FROM STREAMLIT SECRETS)
+# =====================================================
 ZENDESK_SUBDOMAIN = st.secrets["ZENDESK_SUBDOMAIN"]
 ZENDESK_EMAIL = st.secrets["ZENDESK_EMAIL"]
 ZENDESK_API_TOKEN = st.secrets["ZENDESK_API_TOKEN"]
 
 auth = (f"{ZENDESK_EMAIL}/token", ZENDESK_API_TOKEN)
 
-# ==================================================
-# AUTH CHECK
-# ==================================================
+# Auth test
 test_url = f"https://{ZENDESK_SUBDOMAIN}.zendesk.com/api/v2/help_center/articles.json"
 resp = requests.get(test_url, auth=auth)
 
@@ -33,236 +30,195 @@ if resp.status_code != 200:
 else:
     st.success("✅ Zendesk authentication successful")
 
-# ==================================================
+# =====================================================
+# FILE PATHS
+# =====================================================
+OFFERS_FILE = "offers_from_zendesk_articles.xlsx"
+SYNC_MARKER = "last_sync.txt"
+
+# =====================================================
+# ADMIN ACTIONS
+# =====================================================
+st.sidebar.markdown("### 🔧 Admin Actions")
+
+if st.sidebar.button("Run Zendesk Sync + Offer Extraction"):
+    st.info("🚀 Running Zendesk sync...")
+
+    # Zendesk sync
+    import zendesk_sync
+    zendesk_sync.run()
+
+    # Offer extraction
+    import extract_offers_from_articles
+    extract_offers_from_articles.run()
+
+    with open(SYNC_MARKER, "w") as f:
+        f.write(datetime.utcnow().isoformat())
+
+    st.success("✅ Sync & extraction completed")
+
+# =====================================================
+# LOAD OFFERS
+# =====================================================
+if not os.path.exists(OFFERS_FILE):
+    st.error("❌ offers_from_zendesk_articles.xlsx not found. Run Zendesk sync first.")
+    st.stop()
+
+df = pd.read_excel(OFFERS_FILE)
+df.columns = df.columns.str.strip().str.lower()
+
+# =====================================================
 # HEADER STATS
-# ==================================================
+# =====================================================
 st.markdown("### 📊 Offer Snapshot")
+c1, c2 = st.columns(2)
 
-col1, col2 = st.columns(2)
-
-with col1:
+with c1:
     st.metric("Total Active Offers", len(df))
 
-with col2:
+with c2:
     if os.path.exists(SYNC_MARKER):
         last_sync = open(SYNC_MARKER).read().strip()
         st.metric("Last Updated", last_sync.split("T")[0])
     else:
         st.metric("Last Updated", "Unknown")
 
+# =====================================================
+# NLP CONFIG
+# =====================================================
+AIRLINE_SYNONYMS = {
+    "ek": "emirates",
+    "emirates": "emirates",
+    "ai": "air india",
+    "air india": "air india",
+    "af": "air france",
+    "kl": "klm",
+    "dl": "delta",
+    "ba": "british airways",
+    "lh": "lufthansa",
+    "qr": "qatar",
+    "sq": "singapore airlines"
+}
 
-# ==================================================
-# AUTO DAILY SYNC (OPTION 5)
-# ==================================================
-OFFERS_FILE = "offers_from_zendesk_articles.xlsx"
-SYNC_MARKER = "last_sync.txt"
-SYNC_INTERVAL_HOURS = 24
+CABIN_SYNONYMS = {
+    "business": ["business", "biz", "j"],
+    "economy": ["economy", "eco", "y"]
+}
 
-def needs_sync():
-    if not os.path.exists(OFFERS_FILE):
-        return True
-    if not os.path.exists(SYNC_MARKER):
-        return True
-
-    last_sync = datetime.fromisoformat(
-        open(SYNC_MARKER).read().strip()
-    )
-    return datetime.utcnow() - last_sync > timedelta(hours=SYNC_INTERVAL_HOURS)
-
-if needs_sync():
-    with st.spinner("🔄 Syncing latest offers from Zendesk..."):
-        subprocess.run(
-            [sys.executable, "zendesk_sync.py"],
-            check=True
-        )
-        subprocess.run(
-            [sys.executable, "extract_offers_from_articles.py"],
-            check=True
-        )
-
-        with open(SYNC_MARKER, "w") as f:
-            f.write(datetime.utcnow().isoformat())
-
-# ==================================================
-# LOAD OFFERS
-# ==================================================
-df = pd.read_excel(OFFERS_FILE)
-df.columns = df.columns.str.strip().str.lower()
-
-required_cols = [
-    "airline", "iata", "cabin_class",
-    "deal_percent", "valid_till", "source"
+LOCATIONS = [
+    "dubai", "uae", "india", "usa", "america",
+    "europe", "london", "paris", "bangkok",
+    "singapore", "sydney"
 ]
 
-for col in required_cols:
-    if col not in df.columns:
-        df[col] = ""
+# =====================================================
+# NLP PARSER
+# =====================================================
+def parse_query_nlp(query: str):
+    query = query.lower()
+    airline = cabin = location = None
 
-# ==================================================
-# USER QUERY INPUT
-# ==================================================
-query = st.text_input(
-    "Ask about airline offers (e.g. 'EK business dubai', 'best AI economy')"
-)
+    for k, v in AIRLINE_SYNONYMS.items():
+        if k in query:
+            airline = v
+            break
 
-# ==================================================
-# SEARCH LOGIC
-# ==================================================
-def apply_nlp_filters(df, query):
-    intent = parse_query(query)
-    results = df.copy()
+    for c, words in CABIN_SYNONYMS.items():
+        if any(w in query for w in words):
+            cabin = c
+            break
 
-    # Airline / IATA match
-    if intent["iata"] is None:
-        results = results[
-            results["airline"].str.lower().str.contains(query, na=False) |
-            results["iata"].str.lower().str.contains(query, na=False)
-        ]
+    for loc in LOCATIONS:
+        if loc in query:
+            location = loc
+            break
 
-    # Cabin filter
-    if intent["cabin"]:
-        results = results[
-            results["cabin_class"].str.lower().str.contains(intent["cabin"], na=False)
-        ]
+    return airline, cabin, location
 
-    # Region filter (sector / conditions)
-    if intent["region"]:
-        results = results[
-            results["source"].str.lower().str.contains(intent["region"], na=False) |
-            results.get("sector", "").astype(str).str.lower().str.contains(intent["region"], na=False)
-        ]
+# =====================================================
+# NLP MATCH SCORING
+# =====================================================
+def score_row(row, airline, cabin, location, query):
+    score = 0
+    text = f"{row['airline']} {row['iata']} {row['cabin_class']} {row.get('sector','')}".lower()
 
-    # Best deal intent
-    if intent["best"] and not results.empty:
-        results = results.sort_values(by="deal_percent", ascending=False)
+    if airline and airline in row["airline"].lower():
+        score += 3
+    if cabin and cabin in row["cabin_class"].lower():
+        score += 2
+    if location and location in text:
+        score += 1
 
-    return results
+    score += difflib.SequenceMatcher(None, query, text).ratio()
+    return score
 
-if not results.empty:
-    best_offer = results.iloc[0]
+# =====================================================
+# USER QUERY
+# =====================================================
+query = st.text_input("Ask about airline offers (e.g. 'Best EK business deal to Dubai')")
 
+if query:
+    airline, cabin, location = parse_query_nlp(query)
+
+    df["score"] = df.apply(
+        lambda r: score_row(r, airline, cabin, location, query.lower()),
+        axis=1
+    )
+
+    results = df[df["score"] > 1.5].sort_values(
+        by=["score", "deal_percent"],
+        ascending=False
+    )
+
+    if results.empty:
+        st.warning("⚠️ No matching offers found")
+        st.stop()
+
+    # =================================================
+    # BEST OFFER
+    # =================================================
+    best = results.iloc[0]
     st.markdown("## 🏆 Best Available Offer")
     st.success(
         f"""
-✈️ **{best_offer['airline']} ({best_offer['iata']})**  
-Cabin: **{best_offer['cabin_class']}**  
-Deal: **{best_offer['deal_percent']}%**  
-Valid Till: **{best_offer['valid_till']}**
+✈️ **{best['airline']} ({best['iata']})**  
+Cabin: **{best['cabin_class']}**  
+Deal: **{best['deal_percent']}%**  
+Valid Till: **{best['valid_till']}**
 """
     )
 
+    # =================================================
+    # ALL RESULTS
+    # =================================================
+    st.markdown("## ✈️ All Matching Offers")
 
-# ==================================================
-# SIMPLE NLP PARSER (OPTION 4)
-# ==================================================
-def parse_query(query: str):
-    q = query.lower()
-
-    intent = {
-        "best": any(w in q for w in ["best", "highest", "maximum", "top"]),
-        "cabin": None,
-        "airline": None,
-        "iata": None,
-        "region": None
-    }
-
-    # Cabin detection
-    if "business" in q:
-        intent["cabin"] = "business"
-    elif "economy" in q:
-        intent["cabin"] = "economy"
-    elif "first" in q:
-        intent["cabin"] = "first"
-
-    # Region / destination detection
-    regions = {
-        "dubai": "dubai|uae|middle east",
-        "europe": "europe|paris|london|frankfurt|amsterdam",
-        "usa": "usa|america|new york|los angeles|chicago",
-        "india": "india|delhi|mumbai|blr|bengaluru",
-        "asia": "asia|bangkok|singapore|tokyo|hong kong"
-    }
-
-    for key, pattern in regions.items():
-        if any(word in q for word in key.split()):
-            intent["region"] = pattern
-
-    return intent
-
-
-# ==================================================
-# SEARCH + UI
-# ==================================================
-if query:
-    results = apply_nlp_filters(df, query)
-
-    if not results.empty:
-        for i, row in results.iterrows():
-            offer_text = f"""
+    for i, row in results.iterrows():
+        offer_text = f"""
 ✈️ {row['airline']} ({row['iata']})
 Cabin: {row['cabin_class']}
 Deal: {row['deal_percent']}%
 Valid Till: {row['valid_till']}
-Source: {row['source']}
+Source: {row.get('source','Zendesk')}
 """
 
-            st.markdown("### ✈️ Offer")
-            st.text(offer_text.strip())
+        st.markdown("---")
+        st.markdown(f"### ✈️ {row['airline']} ({row['iata']})")
 
-            st.text_area(
-    "📋 Copy offer details",
-    value=offer_text.strip(),
-    height=120,
-    key=f"copy_{i}"
-)
+        c1, c2, c3 = st.columns(3)
+        c1.write(f"**Cabin**\n{row['cabin_class']}")
+        c2.write(f"**Deal**\n{row['deal_percent']}%")
+        c3.write(f"**Valid Till**\n{row['valid_till']}")
 
-    else:
-        st.warning("⚠️ No matching offers found")
-
-
-    if not results.empty:
-        results = results.sort_values(
-            by="deal_percent",
-            ascending=False
+        st.text_area(
+            "📋 Copy offer details",
+            value=offer_text.strip(),
+            height=120,
+            key=f"copy_{i}"
         )
 
-        for i, row in results.iterrows():
-            offer_text = f"""
-✈️ {row['airline']} ({row['iata']})
-Cabin: {row['cabin_class']}
-Deal: {row['deal_percent']}%
-Valid Till: {row['valid_till']}
-Source: {row['source']}
-"""
-
-           st.markdown("---")
-st.markdown(f"### ✈️ {row['airline']} ({row['iata']})")
-
-c1, c2, c3 = st.columns(3)
-
-with c1:
-    st.write("**Cabin**")
-    st.write(row["cabin_class"])
-
-with c2:
-    st.write("**Deal**")
-    st.write(f"{row['deal_percent']}%")
-
-with c3:
-    st.write("**Valid Till**")
-    st.write(row["valid_till"])
-
-
-            # COPY BOX
-            st.text_area(
-                "Copy this offer",
-                value=offer_text.strip(),
-                height=140,
-                key=f"copy_{i}"
-            )
-    else:
-        st.warning("⚠️ No matching offers found")
-
+# =====================================================
+# FOOTER
+# =====================================================
 st.markdown("---")
-st.caption("🤖 Airline Offer Finder Bot • Powered by Zendesk Knowledge Base")
-
+st.caption("🤖 Airline Offer Finder Bot • NLP-powered • Zendesk Knowledge Base")
