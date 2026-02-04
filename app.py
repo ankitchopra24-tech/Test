@@ -8,13 +8,21 @@ import difflib
 from datetime import datetime
 
 # =====================================================
-# PAGE CONFIG
+# CONFIG
+# =====================================================
+ZENDESK_ARTICLE_ID = "8747560108444"
+OFFERS_FILE = "offers_from_zendesk_articles.xlsx"
+SYNC_MARKER = "last_sync.txt"
+
+# =====================================================
+# PAGE CONFIG (FIRST STREAMLIT CALL)
 # =====================================================
 st.set_page_config(page_title="Airline Offer Finder Bot", page_icon="✈️")
 st.title("✈️ Airline Offer Finder Bot")
+st.caption(f"📘 Referencing Zendesk Article ID: `{ZENDESK_ARTICLE_ID}`")
 
 # =====================================================
-# ZENDESK AUTH
+# ZENDESK AUTH (FROM STREAMLIT SECRETS)
 # =====================================================
 try:
     ZENDESK_SUBDOMAIN = st.secrets["ZENDESK_SUBDOMAIN"]
@@ -26,20 +34,17 @@ except Exception:
 
 auth = (f"{ZENDESK_EMAIL}/token", ZENDESK_API_TOKEN)
 
-test_url = f"https://{ZENDESK_SUBDOMAIN}.zendesk.com/api/v2/help_center/articles.json"
+# =====================================================
+# AUTH TEST (SAFE)
+# =====================================================
+test_url = f"https://{ZENDESK_SUBDOMAIN}.zendesk.com/api/v2/help_center/articles/{ZENDESK_ARTICLE_ID}.json"
 resp = requests.get(test_url, auth=auth)
 
 if resp.status_code != 200:
-    st.error("❌ Zendesk authentication failed")
+    st.error("❌ Zendesk authentication or article access failed")
     st.stop()
 else:
     st.success("✅ Zendesk authentication successful")
-
-# =====================================================
-# FILE PATHS
-# =====================================================
-OFFERS_FILE = "offers_from_zendesk_articles.xlsx"
-SYNC_MARKER = "last_sync.txt"
 
 # =====================================================
 # ADMIN ACTIONS
@@ -47,24 +52,33 @@ SYNC_MARKER = "last_sync.txt"
 st.sidebar.markdown("### 🔧 Admin Actions")
 
 if st.sidebar.button("Run Zendesk Sync + Offer Extraction"):
-    st.info("🚀 Running Zendesk sync...")
+    st.info("🚀 Fetching specific Zendesk article...")
 
     sync = subprocess.run(
-        [sys.executable, "zendesk_sync.py"],
+        [
+            sys.executable,
+            "zendesk_sync.py",
+            ZENDESK_ARTICLE_ID,   # 👈 PASS ARTICLE ID
+        ],
         capture_output=True,
         text=True
     )
+
     st.code(sync.stdout or "No output")
     if sync.stderr:
         st.error(sync.stderr)
 
-    st.info("🚀 Running offer extraction...")
+    st.info("🚀 Extracting offers from article...")
 
     extract = subprocess.run(
-        [sys.executable, "extract_offers_from_articles.py"],
+        [
+            sys.executable,
+            "extract_offers_from_articles.py"
+        ],
         capture_output=True,
         text=True
     )
+
     st.code(extract.stdout or "No output")
     if extract.stderr:
         st.error(extract.stderr)
@@ -96,36 +110,23 @@ st.markdown("### 📊 Offer Snapshot")
 c1, c2 = st.columns(2)
 
 with c1:
-    st.metric("Total Active Offers", len(df))
+    st.metric("Total Offers Found", len(df))
 
 with c2:
     if os.path.exists(SYNC_MARKER):
-        last_sync = open(SYNC_MARKER).read().strip()
-        st.metric("Last Updated", last_sync.split("T")[0])
+        last_sync = open(SYNC_MARKER).read().split("T")[0]
+        st.metric("Last Synced", last_sync)
     else:
-        st.metric("Last Updated", "Unknown")
+        st.metric("Last Synced", "Unknown")
 
 # =====================================================
-# DYNAMIC NLP CONFIG (NO HARD-CODED AIRLINES)
+# BUILD DYNAMIC AIRLINE LOOKUP (NO HARD CODING)
 # =====================================================
-CABIN_SYNONYMS = {
-    "business": ["business", "biz", "j"],
-    "economy": ["economy", "eco", "y"],
-    "first": ["first", "f"]
-}
-
-LOCATIONS = [
-    "dubai", "uae", "india", "usa", "america",
-    "europe", "london", "paris", "bangkok",
-    "singapore", "sydney"
-]
-
-# Build airline lookup dynamically from data
 AIRLINE_LOOKUP = {}
 
-for _, r in df.iterrows():
-    airline = str(r.get("airline", "")).lower().strip()
-    iata = str(r.get("iata", "")).lower().strip()
+for _, row in df.iterrows():
+    airline = str(row.get("airline", "")).lower()
+    iata = str(row.get("iata", "")).lower()
 
     if airline:
         AIRLINE_LOOKUP[airline] = airline
@@ -135,43 +136,33 @@ for _, r in df.iterrows():
 # =====================================================
 # NLP PARSER (DYNAMIC)
 # =====================================================
-def parse_query_nlp(query: str):
-    q = query.lower()
-    airline = cabin = location = None
+def parse_query(query: str):
+    query = query.lower()
+    airline = cabin = None
 
-    # Airline / IATA detection
     for key, value in AIRLINE_LOOKUP.items():
-        if f" {key} " in f" {q} ":
+        if f" {key} " in f" {query} ":
             airline = value
             break
 
-    # Cabin detection
-    for c, words in CABIN_SYNONYMS.items():
-        if any(w in q for w in words):
-            cabin = c
-            break
+    if any(w in query for w in ["business", "biz", "j"]):
+        cabin = "business"
+    elif any(w in query for w in ["economy", "eco", "y"]):
+        cabin = "economy"
 
-    # Location detection
-    for loc in LOCATIONS:
-        if loc in q:
-            location = loc
-            break
-
-    return airline, cabin, location
+    return airline, cabin
 
 # =====================================================
-# NLP MATCH SCORING
+# SCORING FUNCTION
 # =====================================================
-def score_row(row, airline, cabin, location, query):
+def score_row(row, airline, cabin, query):
     score = 0.0
-    text = f"{row.get('airline','')} {row.get('iata','')} {row.get('cabin_class','')} {row.get('sector','')}".lower()
+    text = f"{row['airline']} {row['iata']} {row.get('sector','')}".lower()
 
-    if airline and airline in row.get("airline", "").lower():
+    if airline and airline in row["airline"].lower():
         score += 3
-    if cabin and cabin in row.get("cabin_class", "").lower():
+    if cabin and cabin in row.get("cabin_class","").lower():
         score += 2
-    if location and location in text:
-        score += 1
 
     score += difflib.SequenceMatcher(None, query, text).ratio()
     return score
@@ -179,17 +170,19 @@ def score_row(row, airline, cabin, location, query):
 # =====================================================
 # USER QUERY
 # =====================================================
-query = st.text_input("Ask about airline offers (e.g. 'Best EK business deal to Dubai')")
+query = st.text_input(
+    "Ask about airline offers (e.g. 'Best EK business deal')"
+)
 
 if query:
-    airline, cabin, location = parse_query_nlp(query)
+    airline, cabin = parse_query(query)
 
     df["score"] = df.apply(
-        lambda r: score_row(r, airline, cabin, location, query.lower()),
+        lambda r: score_row(r, airline, cabin, query.lower()),
         axis=1
     )
 
-    results = df[df["score"] > 1.5].sort_values(
+    results = df[df["score"] > 1.2].sort_values(
         by=["score", "deal_percent"],
         ascending=False
     )
@@ -223,16 +216,11 @@ Valid Till: **{best['valid_till']}**
 Cabin: {row['cabin_class']}
 Deal: {row['deal_percent']}%
 Valid Till: {row['valid_till']}
-Source: {row.get('source','Zendesk')}
+Source: Zendesk Article {ZENDESK_ARTICLE_ID}
 """
 
         st.markdown("---")
         st.markdown(f"### ✈️ {row['airline']} ({row['iata']})")
-
-        c1, c2, c3 = st.columns(3)
-        c1.write(f"**Cabin**\n{row['cabin_class']}")
-        c2.write(f"**Deal**\n{row['deal_percent']}%")
-        c3.write(f"**Valid Till**\n{row['valid_till']}")
 
         st.text_area(
             "📋 Copy offer details",
@@ -245,4 +233,4 @@ Source: {row.get('source','Zendesk')}
 # FOOTER
 # =====================================================
 st.markdown("---")
-st.caption("🤖 Airline Offer Finder Bot • Dynamic NLP • Zendesk Knowledge Base")
+st.caption("🤖 Airline Offer Finder Bot • NLP-powered • Single Zendesk Article")
