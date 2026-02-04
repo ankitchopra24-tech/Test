@@ -2,59 +2,65 @@ import pandas as pd
 import re
 from datetime import datetime
 
-print("🚀 Offer extraction started")
+print("🚀 Offer extraction started...")
+
+INPUT_FILE = "zendesk_articles_raw.xlsx"
+OUTPUT_FILE = "offers_from_zendesk_articles.xlsx"
 
 # =====================================================
 # LOAD RAW ARTICLE
 # =====================================================
-INPUT_FILE = "zendesk_articles_raw.xlsx"
-OUTPUT_FILE = "offers_from_zendesk_articles.xlsx"
-
 df = pd.read_excel(INPUT_FILE)
 
 if df.empty:
-    raise Exception("❌ zendesk_articles_raw.xlsx is empty")
+    raise Exception("❌ No article data found")
 
-content = df.iloc[0]["content"].lower()
+text = df.iloc[0]["content"].lower()
 
-# =====================================================
-# REGEX PATTERNS (GENERIC – ANY AIRLINE)
-# =====================================================
-AIRLINE_PATTERN = r"(emirates|air india|air france|klm|delta|lufthansa|qatar|british airways|singapore airlines|[a-z ]+ airlines)"
-IATA_PATTERN = r"\(([a-z]{2})\)"
-CABIN_PATTERN = r"(business|economy|first)"
-DEAL_PATTERN = r"(\d{1,2})\s?%"
-VALID_PATTERN = r"(valid till|valid until|valid upto)\s+([a-z0-9 ,]+)"
-
-# =====================================================
-# EXTRACT OFFERS (LINE BY LINE)
-# =====================================================
 offers = []
 
-for line in content.split("\n"):
-    airline_match = re.search(AIRLINE_PATTERN, line)
-    deal_match = re.search(DEAL_PATTERN, line)
+# =====================================================
+# SIMPLE NLP REGEX (AIRLINE AGNOSTIC)
+# =====================================================
+airline_pattern = re.compile(
+    r"(emirates|air india|air france|klm|delta|lufthansa|qatar|british airways|singapore airlines|[a-z ]+ airlines?)",
+    re.IGNORECASE
+)
 
-    if airline_match and deal_match:
+iata_pattern = re.compile(r"\b[A-Z]{2}\b")
+deal_pattern = re.compile(r"(\d{1,2})\s?%")
+cabin_pattern = re.compile(r"(business|economy|first|premium economy)", re.IGNORECASE)
+
+lines = text.split(". ")
+
+for line in lines:
+    airline = airline_pattern.search(line)
+    deal = deal_pattern.search(line)
+
+    if airline and deal:
+        cabin = cabin_pattern.search(line)
+        iata = iata_pattern.search(line.upper())
+
         offers.append({
-            "airline": airline_match.group(1).title(),
-            "iata": "",
-            "cabin_class": "Business" if "business" in line else "Economy",
-            "deal_percent": int(deal_match.group(1)),
+            "airline": airline.group(0).title(),
+            "iata": iata.group(0) if iata else "",
+            "cabin_class": cabin.group(0).title() if cabin else "Any",
+            "deal_percent": int(deal.group(1)),
             "valid_till": "",
-            "sector": "",
-            "source": "Zendesk Article"
+            "source": "Zendesk Article",
+            "extracted_on": datetime.utcnow().date().isoformat()
         })
 
 # =====================================================
-# SAVE RESULTS
+# SAVE OUTPUT
 # =====================================================
-if not offers:
-    raise Exception("❌ No offers extracted from article")
-
 out_df = pd.DataFrame(offers)
+
+if out_df.empty:
+    raise Exception("❌ No offers detected in article text")
+
 out_df.to_excel(OUTPUT_FILE, index=False)
 
 print(f"✅ Extracted {len(out_df)} offers")
-print(f"✅ Saved offers to {OUTPUT_FILE}")
-print("✅ Offer extraction finished successfully")
+print(f"📄 Saved to {OUTPUT_FILE}")
+print("🏁 Offer extraction finished")
