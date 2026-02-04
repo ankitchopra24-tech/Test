@@ -7,7 +7,6 @@ import pandas as pd
 import difflib
 from datetime import datetime
 
-
 # =====================================================
 # PAGE CONFIG
 # =====================================================
@@ -15,15 +14,18 @@ st.set_page_config(page_title="Airline Offer Finder Bot", page_icon="✈️")
 st.title("✈️ Airline Offer Finder Bot")
 
 # =====================================================
-# ZENDESK AUTH (FROM STREAMLIT SECRETS)
+# ZENDESK AUTH
 # =====================================================
-ZENDESK_SUBDOMAIN = st.secrets["ZENDESK_SUBDOMAIN"]
-ZENDESK_EMAIL = st.secrets["ZENDESK_EMAIL"]
-ZENDESK_API_TOKEN = st.secrets["ZENDESK_API_TOKEN"]
+try:
+    ZENDESK_SUBDOMAIN = st.secrets["ZENDESK_SUBDOMAIN"]
+    ZENDESK_EMAIL = st.secrets["ZENDESK_EMAIL"]
+    ZENDESK_API_TOKEN = st.secrets["ZENDESK_API_TOKEN"]
+except Exception:
+    st.error("❌ Zendesk secrets missing in Streamlit")
+    st.stop()
 
 auth = (f"{ZENDESK_EMAIL}/token", ZENDESK_API_TOKEN)
 
-# Auth test
 test_url = f"https://{ZENDESK_SUBDOMAIN}.zendesk.com/api/v2/help_center/articles.json"
 resp = requests.get(test_url, auth=auth)
 
@@ -52,8 +54,9 @@ if st.sidebar.button("Run Zendesk Sync + Offer Extraction"):
         capture_output=True,
         text=True
     )
-    st.code(sync.stdout)
-    st.code(sync.stderr)
+    st.code(sync.stdout or "No output")
+    if sync.stderr:
+        st.error(sync.stderr)
 
     st.info("🚀 Running offer extraction...")
 
@@ -62,10 +65,11 @@ if st.sidebar.button("Run Zendesk Sync + Offer Extraction"):
         capture_output=True,
         text=True
     )
-    st.code(extract.stdout)
-    st.code(extract.stderr)
+    st.code(extract.stdout or "No output")
+    if extract.stderr:
+        st.error(extract.stderr)
 
-    with open("last_sync.txt", "w") as f:
+    with open(SYNC_MARKER, "w") as f:
         f.write(datetime.utcnow().isoformat())
 
     st.success("✅ Sync & extraction completed")
@@ -74,10 +78,15 @@ if st.sidebar.button("Run Zendesk Sync + Offer Extraction"):
 # LOAD OFFERS
 # =====================================================
 if not os.path.exists(OFFERS_FILE):
-    st.error("❌ offers_from_zendesk_articles.xlsx not found. Run Zendesk sync first.")
+    st.warning("⚠️ No offers file found. Run Zendesk sync from the sidebar.")
     st.stop()
 
 df = pd.read_excel(OFFERS_FILE)
+
+if df.empty:
+    st.warning("⚠️ Offers file is empty.")
+    st.stop()
+
 df.columns = df.columns.str.strip().str.lower()
 
 # =====================================================
@@ -97,25 +106,12 @@ with c2:
         st.metric("Last Updated", "Unknown")
 
 # =====================================================
-# NLP CONFIG
+# DYNAMIC NLP CONFIG (NO HARD-CODED AIRLINES)
 # =====================================================
-AIRLINE_SYNONYMS = {
-    "ek": "emirates",
-    "emirates": "emirates",
-    "ai": "air india",
-    "air india": "air india",
-    "af": "air france",
-    "kl": "klm",
-    "dl": "delta",
-    "ba": "british airways",
-    "lh": "lufthansa",
-    "qr": "qatar",
-    "sq": "singapore airlines"
-}
-
 CABIN_SYNONYMS = {
     "business": ["business", "biz", "j"],
-    "economy": ["economy", "eco", "y"]
+    "economy": ["economy", "eco", "y"],
+    "first": ["first", "f"]
 }
 
 LOCATIONS = [
@@ -124,25 +120,40 @@ LOCATIONS = [
     "singapore", "sydney"
 ]
 
+# Build airline lookup dynamically from data
+AIRLINE_LOOKUP = {}
+
+for _, r in df.iterrows():
+    airline = str(r.get("airline", "")).lower().strip()
+    iata = str(r.get("iata", "")).lower().strip()
+
+    if airline:
+        AIRLINE_LOOKUP[airline] = airline
+    if iata:
+        AIRLINE_LOOKUP[iata] = airline
+
 # =====================================================
-# NLP PARSER
+# NLP PARSER (DYNAMIC)
 # =====================================================
 def parse_query_nlp(query: str):
-    query = query.lower()
+    q = query.lower()
     airline = cabin = location = None
 
-    for k, v in AIRLINE_SYNONYMS.items():
-        if k in query:
-            airline = v
+    # Airline / IATA detection
+    for key, value in AIRLINE_LOOKUP.items():
+        if f" {key} " in f" {q} ":
+            airline = value
             break
 
+    # Cabin detection
     for c, words in CABIN_SYNONYMS.items():
-        if any(w in query for w in words):
+        if any(w in q for w in words):
             cabin = c
             break
 
+    # Location detection
     for loc in LOCATIONS:
-        if loc in query:
+        if loc in q:
             location = loc
             break
 
@@ -152,12 +163,12 @@ def parse_query_nlp(query: str):
 # NLP MATCH SCORING
 # =====================================================
 def score_row(row, airline, cabin, location, query):
-    score = 0
-    text = f"{row['airline']} {row['iata']} {row['cabin_class']} {row.get('sector','')}".lower()
+    score = 0.0
+    text = f"{row.get('airline','')} {row.get('iata','')} {row.get('cabin_class','')} {row.get('sector','')}".lower()
 
-    if airline and airline in row["airline"].lower():
+    if airline and airline in row.get("airline", "").lower():
         score += 3
-    if cabin and cabin in row["cabin_class"].lower():
+    if cabin and cabin in row.get("cabin_class", "").lower():
         score += 2
     if location and location in text:
         score += 1
@@ -234,4 +245,4 @@ Source: {row.get('source','Zendesk')}
 # FOOTER
 # =====================================================
 st.markdown("---")
-st.caption("🤖 Airline Offer Finder Bot • NLP-powered • Zendesk Knowledge Base")
+st.caption("🤖 Airline Offer Finder Bot • Dynamic NLP • Zendesk Knowledge Base")
