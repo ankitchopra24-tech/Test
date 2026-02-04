@@ -1,3 +1,13 @@
+import sys, subprocess
+
+if st.sidebar.button("Run Attachment Sync"):
+    res = subprocess.run(
+        [sys.executable, "zendesk_attachments_sync.py"],
+        capture_output=True,
+        text=True
+    )
+    st.code(res.stdout)
+    st.code(res.stderr)
 
 
 import streamlit as st
