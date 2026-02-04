@@ -53,36 +53,45 @@ col_map = {
 # -------------------------------
 # SEARCH FUNCTION
 # -------------------------------
-def find_offer(query):
-    query = query.lower()
-    results = df.copy()
+if query:
+    query = query.lower().strip()
 
-    if "ek" in query:
-        results = results[results["iata"].str.lower() == "ek"]
+    def match_offer(row, query):
+        airline = str(row["airline"]).lower()
+        iata = str(row["iata"]).lower()
 
-    if "business" in query:
-        results = results[results["cabin_class"].str.contains("business", case=False)]
+        if query == iata:
+            return True
+        if airline in query or query in airline:
+            return True
+        if iata in query:
+            return True
+        return False
 
-    if "dubai" in query:
-        results = results[results["sector"].str.contains("dubai|uae|middle", case=False)]
+    results = df[df.apply(lambda r: match_offer(r, query), axis=1)]
+    results = results.sort_values(by="deal_percent", ascending=False)
 
-    results = results.sort_values(by="deal_%", ascending=False)
-    return results.head(3)
 
 # -------------------------------
 # UI
 # -------------------------------
-query = st.text_input("Ask about airline offers")
+for i, row in results.iterrows():
+    offer_text = f"""
+✈️ {row['airline']} ({row['iata']})
+Cabin: {row['cabin_class']}
+Deal: {row['deal_percent']}%
+Valid Till: {row['valid_till']}
+Source: {row['source']}
+"""
 
-if query:
-    matches = find_offer(query)
-    for _, row in matches.iterrows():
-        st.markdown(f"""
-**✈️ {row['airline']} ({row['iata']})**  
-Cabin: {row['cabin_class']}  
-Deal: {row['deal_%']}%  
-Sector: {row['sector']}  
-Valid Till: {row['valid_till']}  
-Conditions: {row['key_conditions']}
----
-""")
+    st.markdown("### ✈️ Offer")
+    st.text(offer_text.strip())
+
+    # 👇 COPY BUTTON (UI)
+    st.text_area(
+        "Copy this offer",
+        value=offer_text.strip(),
+        height=140,
+        key=f"copy_{i}"
+    )
+
