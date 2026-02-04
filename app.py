@@ -34,6 +34,24 @@ else:
     st.success("✅ Zendesk authentication successful")
 
 # ==================================================
+# HEADER STATS
+# ==================================================
+st.markdown("### 📊 Offer Snapshot")
+
+col1, col2 = st.columns(2)
+
+with col1:
+    st.metric("Total Active Offers", len(df))
+
+with col2:
+    if os.path.exists(SYNC_MARKER):
+        last_sync = open(SYNC_MARKER).read().strip()
+        st.metric("Last Updated", last_sync.split("T")[0])
+    else:
+        st.metric("Last Updated", "Unknown")
+
+
+# ==================================================
 # AUTO DAILY SYNC (OPTION 5)
 # ==================================================
 OFFERS_FILE = "offers_from_zendesk_articles.xlsx"
@@ -120,6 +138,20 @@ def apply_nlp_filters(df, query):
 
     return results
 
+if not results.empty:
+    best_offer = results.iloc[0]
+
+    st.markdown("## 🏆 Best Available Offer")
+    st.success(
+        f"""
+✈️ **{best_offer['airline']} ({best_offer['iata']})**  
+Cabin: **{best_offer['cabin_class']}**  
+Deal: **{best_offer['deal_percent']}%**  
+Valid Till: **{best_offer['valid_till']}**
+"""
+    )
+
+
 # ==================================================
 # SIMPLE NLP PARSER (OPTION 4)
 # ==================================================
@@ -178,11 +210,12 @@ Source: {row['source']}
             st.text(offer_text.strip())
 
             st.text_area(
-                "Copy this offer",
-                value=offer_text.strip(),
-                height=140,
-                key=f"copy_{i}"
-            )
+    "📋 Copy offer details",
+    value=offer_text.strip(),
+    height=120,
+    key=f"copy_{i}"
+)
+
     else:
         st.warning("⚠️ No matching offers found")
 
@@ -202,8 +235,23 @@ Valid Till: {row['valid_till']}
 Source: {row['source']}
 """
 
-            st.markdown("### ✈️ Offer")
-            st.text(offer_text.strip())
+           st.markdown("---")
+st.markdown(f"### ✈️ {row['airline']} ({row['iata']})")
+
+c1, c2, c3 = st.columns(3)
+
+with c1:
+    st.write("**Cabin**")
+    st.write(row["cabin_class"])
+
+with c2:
+    st.write("**Deal**")
+    st.write(f"{row['deal_percent']}%")
+
+with c3:
+    st.write("**Valid Till**")
+    st.write(row["valid_till"])
+
 
             # COPY BOX
             st.text_area(
@@ -214,3 +262,7 @@ Source: {row['source']}
             )
     else:
         st.warning("⚠️ No matching offers found")
+
+st.markdown("---")
+st.caption("🤖 Airline Offer Finder Bot • Powered by Zendesk Knowledge Base")
+
