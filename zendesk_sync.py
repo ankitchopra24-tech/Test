@@ -1,79 +1,60 @@
-def run():
-   import requests
+import sys
+import requests
 import pandas as pd
-from bs4 import BeautifulSoup
 import streamlit as st
-import os
+from bs4 import BeautifulSoup
 
-ARTICLE_ID = st.secrets["ZENDESK_ARTICLE_ID"]
-SUBDOMAIN = st.secrets["ZENDESK_SUBDOMAIN"]
-EMAIL = st.secrets["ZENDESK_EMAIL"]
-TOKEN = st.secrets["ZENDESK_API_TOKEN"]
+# =====================================================
+# READ ARTICLE ID FROM CLI
+# =====================================================
+if len(sys.argv) < 2:
+    raise Exception("❌ Article ID not provided to zendesk_sync.py")
 
-auth = (f"{EMAIL}/token", TOKEN)
+ARTICLE_ID = sys.argv[1]
 
-BASE_URL = f"https://{SUBDOMAIN}.zendesk.com/api/v2/help_center/articles/{ARTICLE_ID}"
+print(f"🚀 Zendesk sync started for article {ARTICLE_ID}")
 
-print("🚀 Zendesk single-article sync started")
+# =====================================================
+# AUTH FROM STREAMLIT SECRETS
+# =====================================================
+ZENDESK_SUBDOMAIN = st.secrets["ZENDESK_SUBDOMAIN"]
+ZENDESK_EMAIL = st.secrets["ZENDESK_EMAIL"]
+ZENDESK_API_TOKEN = st.secrets["ZENDESK_API_TOKEN"]
 
-# 1️⃣ Fetch article
-article_resp = requests.get(f"{BASE_URL}.json", auth=auth)
-article = article_resp.json()["article"]
+auth = (f"{ZENDESK_EMAIL}/token", ZENDESK_API_TOKEN)
 
-# 2️⃣ Fetch attachments
-attach_resp = requests.get(f"{BASE_URL}/attachments.json", auth=auth)
-attachments = attach_resp.json().get("article_attachments", [])
+# =====================================================
+# FETCH ARTICLE
+# =====================================================
+url = f"https://{ZENDESK_SUBDOMAIN}.zendesk.com/api/v2/help_center/articles/{ARTICLE_ID}.json"
+resp = requests.get(url, auth=auth)
 
-os.makedirs("attachments", exist_ok=True)
+if resp.status_code != 200:
+    raise Exception(f"❌ Failed to fetch article {ARTICLE_ID}")
 
-excel_file = None
-pdf_file = None
+article = resp.json()["article"]
 
-for att in attachments:
-    name = att["file_name"].lower()
-    url = att["content_url"]
+# =====================================================
+# CLEAN HTML CONTENT
+# =====================================================
+soup = BeautifulSoup(article["body"], "html.parser")
+text_content = soup.get_text(separator=" ", strip=True)
 
-    file_path = f"attachments/{att['file_name']}"
-    with open(file_path, "wb") as f:
-        f.write(requests.get(url).content)
+# =====================================================
+# SAVE TO EXCEL
+# =====================================================
+df = pd.DataFrame([
+    {
+        "article_id": article["id"],
+        "title": article["title"],
+        "content": text_content,
+        "updated_at": article["updated_at"],
+        "source": "Zendesk"
+    }
+])
 
-    if name.endswith(".xlsx"):
-        excel_file = file_path
-    elif name.endswith(".pdf"):
-        pdf_file = file_path
+output_file = "zendesk_articles_raw.xlsx"
+df.to_excel(output_file, index=False)
 
-# 3️⃣ Priority: Excel → PDF → Text
-if excel_file:
-    print("✅ Using Excel attachment")
-    df = pd.read_excel(excel_file)
-    df["source"] = "zendesk_excel"
-
-elif pdf_file:
-    print("✅ Using PDF attachment")
-    import pdfplumber
-    text = ""
-    with pdfplumber.open(pdf_file) as pdf:
-        for page in pdf.pages:
-            text += page.extract_text() + "\n"
-
-    df = pd.DataFrame([{
-        "content": text,
-        "source": "zendesk_pdf"
-    }])
-
-else:
-    print("✅ Using article text")
-    soup = BeautifulSoup(article["body"], "html.parser")
-    text = soup.get_text(" ", strip=True)
-
-    df = pd.DataFrame([{
-        "content": text,
-        "source": "zendesk_text"
-    }])
-
-# 4️⃣ Save unified raw file
-df.to_excel("offers_from_zendesk_articles.xlsx", index=False)
-print("✅ Saved offers_from_zendesk_articles.xlsx")
-
-if __name__ == "__main__":
-    run()
+print(f"✅ Saved article to {output_file}")
+print("✅ Zendesk sync finished successfully")
