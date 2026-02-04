@@ -11,7 +11,6 @@ from datetime import datetime
 # CONFIG
 # =====================================================
 ZENDESK_ARTICLE_ID = "8747560108444"
-OFFERS_FILE = "offers_from_zendesk_articles.xlsx"
 SYNC_MARKER = "last_sync.txt"
 
 # =====================================================
