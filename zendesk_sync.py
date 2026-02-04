@@ -1,22 +1,15 @@
-import sys
 import requests
 import pandas as pd
 import streamlit as st
 from bs4 import BeautifulSoup
 
-# =====================================================
-# READ ARTICLE ID FROM CLI
-# =====================================================
-if len(sys.argv) < 2:
-    raise Exception("❌ Article ID not provided to zendesk_sync.py")
-
-ARTICLE_ID = sys.argv[1]
-
-print(f"🚀 Zendesk sync started for article {ARTICLE_ID}")
+print("🚀 Zendesk sync started...")
 
 # =====================================================
-# AUTH FROM STREAMLIT SECRETS
+# CONFIG
 # =====================================================
+ZENDESK_ARTICLE_ID = "8747560108444"
+
 ZENDESK_SUBDOMAIN = st.secrets["ZENDESK_SUBDOMAIN"]
 ZENDESK_EMAIL = st.secrets["ZENDESK_EMAIL"]
 ZENDESK_API_TOKEN = st.secrets["ZENDESK_API_TOKEN"]
@@ -24,37 +17,38 @@ ZENDESK_API_TOKEN = st.secrets["ZENDESK_API_TOKEN"]
 auth = (f"{ZENDESK_EMAIL}/token", ZENDESK_API_TOKEN)
 
 # =====================================================
-# FETCH ARTICLE
+# FETCH SINGLE ARTICLE
 # =====================================================
-url = f"https://{ZENDESK_SUBDOMAIN}.zendesk.com/api/v2/help_center/articles/{ARTICLE_ID}.json"
-resp = requests.get(url, auth=auth)
+url = f"https://{ZENDESK_SUBDOMAIN}.zendesk.com/api/v2/help_center/articles/{ZENDESK_ARTICLE_ID}.json"
 
-if resp.status_code != 200:
-    raise Exception(f"❌ Failed to fetch article {ARTICLE_ID}")
+response = requests.get(url, auth=auth)
 
-article = resp.json()["article"]
+if response.status_code != 200:
+    raise Exception(
+        f"❌ Failed to fetch article {ZENDESK_ARTICLE_ID}. "
+        f"Status: {response.status_code} | {response.text}"
+    )
+
+article = response.json()["article"]
 
 # =====================================================
-# CLEAN HTML CONTENT
+# CLEAN HTML → TEXT
 # =====================================================
 soup = BeautifulSoup(article["body"], "html.parser")
-text_content = soup.get_text(separator=" ", strip=True)
+text = soup.get_text(separator=" ", strip=True)
 
 # =====================================================
 # SAVE TO EXCEL
 # =====================================================
-df = pd.DataFrame([
-    {
-        "article_id": article["id"],
-        "title": article["title"],
-        "content": text_content,
-        "updated_at": article["updated_at"],
-        "source": "Zendesk"
-    }
-])
+df = pd.DataFrame([{
+    "article_id": article["id"],
+    "title": article["title"],
+    "content": text,
+    "updated_at": article["updated_at"]
+}])
 
 output_file = "zendesk_articles_raw.xlsx"
 df.to_excel(output_file, index=False)
 
-print(f"✅ Saved article to {output_file}")
-print("✅ Zendesk sync finished successfully")
+print(f"✅ Saved article {article['id']} to {output_file}")
+print("🏁 Zendesk sync finished successfully")
