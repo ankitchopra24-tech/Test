@@ -1,80 +1,60 @@
-print("🚀 Offer extraction script started")
-
-
 import pandas as pd
 import re
 from datetime import datetime
 
-# -------------------------------------------------
-# LOAD RAW ZENDESK ARTICLES
-# -------------------------------------------------
-import os
+print("🚀 Offer extraction started")
 
-print("📂 Current directory files:", os.listdir("."))
+# =====================================================
+# LOAD RAW ARTICLE
+# =====================================================
+INPUT_FILE = "zendesk_articles_raw.xlsx"
+OUTPUT_FILE = "offers_from_zendesk_articles.xlsx"
 
-if not os.path.exists("zendesk_articles_raw.xlsx"):
-    raise FileNotFoundError("❌ zendesk_articles_raw.xlsx NOT FOUND")
+df = pd.read_excel(INPUT_FILE)
 
-df = pd.read_excel("zendesk_articles_raw.xlsx")
-print(f"✅ Loaded {len(df)} Zendesk articles")
+if df.empty:
+    raise Exception("❌ zendesk_articles_raw.xlsx is empty")
 
+content = df.iloc[0]["content"].lower()
 
+# =====================================================
+# REGEX PATTERNS (GENERIC – ANY AIRLINE)
+# =====================================================
+AIRLINE_PATTERN = r"(emirates|air india|air france|klm|delta|lufthansa|qatar|british airways|singapore airlines|[a-z ]+ airlines)"
+IATA_PATTERN = r"\(([a-z]{2})\)"
+CABIN_PATTERN = r"(business|economy|first)"
+DEAL_PATTERN = r"(\d{1,2})\s?%"
+VALID_PATTERN = r"(valid till|valid until|valid upto)\s+([a-z0-9 ,]+)"
+
+# =====================================================
+# EXTRACT OFFERS (LINE BY LINE)
+# =====================================================
 offers = []
 
-# Airline reference map (extend later)
-AIRLINES = {
-    "emirates": "EK",
-    "air france": "AF",
-    "klm": "KL",
-    "delta": "DL",
-    "air india": "AI",
-    "lufthansa": "LH",
-    "british airways": "BA",
-    "qatar": "QR",
-    "singapore airlines": "SQ"
-}
+for line in content.split("\n"):
+    airline_match = re.search(AIRLINE_PATTERN, line)
+    deal_match = re.search(DEAL_PATTERN, line)
 
-# -------------------------------------------------
-# EXTRACT OFFER DATA
-# -------------------------------------------------
-for _, row in df.iterrows():
-    text = str(row["content"]).lower()
+    if airline_match and deal_match:
+        offers.append({
+            "airline": airline_match.group(1).title(),
+            "iata": "",
+            "cabin_class": "Business" if "business" in line else "Economy",
+            "deal_percent": int(deal_match.group(1)),
+            "valid_till": "",
+            "sector": "",
+            "source": "Zendesk Article"
+        })
 
-    for airline, iata in AIRLINES.items():
-        if airline in text:
-            # Deal %
-            deal_match = re.search(r"(\d+(\.\d+)?)\s*%", text)
-            deal = float(deal_match.group(1)) if deal_match else None
+# =====================================================
+# SAVE RESULTS
+# =====================================================
+if not offers:
+    raise Exception("❌ No offers extracted from article")
 
-            # Cabin class
-            cabin = "Business" if "business" in text else "Economy" if "economy" in text else "All"
+out_df = pd.DataFrame(offers)
+out_df.to_excel(OUTPUT_FILE, index=False)
 
-            # Validity date
-            date_match = re.search(r"(\d{1,2}\s\w+\s\d{4})", text)
-            valid_till = None
-            if date_match:
-                try:
-                    valid_till = datetime.strptime(date_match.group(1), "%d %b %Y")
-                except:
-                    pass
-
-            offers.append({
-                "airline": airline.title(),
-                "iata": iata,
-                "cabin_class": cabin,
-                "deal_percent": deal,
-                "valid_till": valid_till,
-                "source_article": row["title"],
-                "source": "Zendesk KB"
-            })
-
-# -------------------------------------------------
-# SAVE STRUCTURED OFFERS
-# -------------------------------------------------
-offers_df = pd.DataFrame(offers)
-offers_df.to_excel("offers_from_zendesk_articles.xlsx", index=False)
-
-print(f"✅ Extracted {len(offers_df)} offers from Zendesk articles")
-
-print("✅ Offer extraction script finished")
-
+print(f"✅ Extracted {len(out_df)} offers")
+print(f"✅ Saved offers to {OUTPUT_FILE}")
+print("✅ Offer extraction finished successfully")
