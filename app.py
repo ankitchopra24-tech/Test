@@ -1,9 +1,12 @@
 import os
+import sys
+import subprocess
 import streamlit as st
 import requests
 import pandas as pd
 import difflib
 from datetime import datetime
+
 
 # =====================================================
 # PAGE CONFIG
@@ -44,15 +47,25 @@ st.sidebar.markdown("### 🔧 Admin Actions")
 if st.sidebar.button("Run Zendesk Sync + Offer Extraction"):
     st.info("🚀 Running Zendesk sync...")
 
-    # Zendesk sync
-    import zendesk_sync
-    zendesk_sync.run()
+    sync = subprocess.run(
+        [sys.executable, "zendesk_sync.py"],
+        capture_output=True,
+        text=True
+    )
+    st.code(sync.stdout)
+    st.code(sync.stderr)
 
-    # Offer extraction
-    import extract_offers_from_articles
-    extract_offers_from_articles.run()
+    st.info("🚀 Running offer extraction...")
 
-    with open(SYNC_MARKER, "w") as f:
+    extract = subprocess.run(
+        [sys.executable, "extract_offers_from_articles.py"],
+        capture_output=True,
+        text=True
+    )
+    st.code(extract.stdout)
+    st.code(extract.stderr)
+
+    with open("last_sync.txt", "w") as f:
         f.write(datetime.utcnow().isoformat())
 
     st.success("✅ Sync & extraction completed")
