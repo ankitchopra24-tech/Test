@@ -1,3 +1,6 @@
+def run():
+
+
 print("🚀 Zendesk sync started...")
 
 
@@ -50,4 +53,8 @@ df.to_excel(output_file, index=False)
 print(f"✅ Saved {len(df)} Zendesk articles to {output_file}")
 
 print("✅ Zendesk sync finished successfully")
+
+if __name__ == "__main__":
+    run()
+
 
