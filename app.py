@@ -1,4 +1,6 @@
-import sys, subprocess
+import streamlit as st
+import sys
+import subprocess
 
 if st.sidebar.button("Run Attachment Sync"):
     res = subprocess.run(
