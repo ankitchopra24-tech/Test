@@ -1,28 +1,3 @@
-import sys
-import subprocess
-import streamlit as st
-
-st.sidebar.markdown("## 🔧 Admin Actions")
-
-if st.sidebar.button("Run Zendesk Sync + Offer Extraction"):
-    st.write("🚀 Running Zendesk sync...")
-    sync = subprocess.run(
-        [sys.executable, "zendesk_sync.py"],
-        capture_output=True,
-        text=True
-    )
-    st.code(sync.stdout)
-    st.code(sync.stderr)
-
-    st.write("🚀 Running offer extraction...")
-    extract = subprocess.run(
-        [sys.executable, "extract_offers_from_articles.py"],
-        capture_output=True,
-        text=True
-    )
-    st.code(extract.stdout)
-    st.code(extract.stderr)
-
 
 
 import streamlit as st
