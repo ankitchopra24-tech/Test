@@ -90,24 +90,102 @@ query = st.text_input(
 # ==================================================
 # SEARCH LOGIC
 # ==================================================
-def match_offer(row, q):
-    airline = str(row["airline"]).lower()
-    iata = str(row["iata"]).lower()
+def apply_nlp_filters(df, query):
+    intent = parse_query(query)
+    results = df.copy()
 
-    if q == iata:
-        return True
-    if airline in q or q in airline:
-        return True
-    if iata in q:
-        return True
-    return False
+    # Airline / IATA match
+    if intent["iata"] is None:
+        results = results[
+            results["airline"].str.lower().str.contains(query, na=False) |
+            results["iata"].str.lower().str.contains(query, na=False)
+        ]
+
+    # Cabin filter
+    if intent["cabin"]:
+        results = results[
+            results["cabin_class"].str.lower().str.contains(intent["cabin"], na=False)
+        ]
+
+    # Region filter (sector / conditions)
+    if intent["region"]:
+        results = results[
+            results["source"].str.lower().str.contains(intent["region"], na=False) |
+            results.get("sector", "").astype(str).str.lower().str.contains(intent["region"], na=False)
+        ]
+
+    # Best deal intent
+    if intent["best"] and not results.empty:
+        results = results.sort_values(by="deal_percent", ascending=False)
+
+    return results
+
+# ==================================================
+# SIMPLE NLP PARSER (OPTION 4)
+# ==================================================
+def parse_query(query: str):
+    q = query.lower()
+
+    intent = {
+        "best": any(w in q for w in ["best", "highest", "maximum", "top"]),
+        "cabin": None,
+        "airline": None,
+        "iata": None,
+        "region": None
+    }
+
+    # Cabin detection
+    if "business" in q:
+        intent["cabin"] = "business"
+    elif "economy" in q:
+        intent["cabin"] = "economy"
+    elif "first" in q:
+        intent["cabin"] = "first"
+
+    # Region / destination detection
+    regions = {
+        "dubai": "dubai|uae|middle east",
+        "europe": "europe|paris|london|frankfurt|amsterdam",
+        "usa": "usa|america|new york|los angeles|chicago",
+        "india": "india|delhi|mumbai|blr|bengaluru",
+        "asia": "asia|bangkok|singapore|tokyo|hong kong"
+    }
+
+    for key, pattern in regions.items():
+        if any(word in q for word in key.split()):
+            intent["region"] = pattern
+
+    return intent
+
 
 # ==================================================
 # SEARCH + UI
 # ==================================================
 if query:
-    q = query.lower().strip()
-    results = df[df.apply(lambda r: match_offer(r, q), axis=1)]
+    results = apply_nlp_filters(df, query)
+
+    if not results.empty:
+        for i, row in results.iterrows():
+            offer_text = f"""
+✈️ {row['airline']} ({row['iata']})
+Cabin: {row['cabin_class']}
+Deal: {row['deal_percent']}%
+Valid Till: {row['valid_till']}
+Source: {row['source']}
+"""
+
+            st.markdown("### ✈️ Offer")
+            st.text(offer_text.strip())
+
+            st.text_area(
+                "Copy this offer",
+                value=offer_text.strip(),
+                height=140,
+                key=f"copy_{i}"
+            )
+    else:
+        st.warning("⚠️ No matching offers found")
+
 
     if not results.empty:
         results = results.sort_values(
