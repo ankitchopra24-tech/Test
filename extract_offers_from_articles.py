@@ -1,4 +1,6 @@
 import pandas as pd
+import re
+from bs4 import BeautifulSoup
 from datetime import datetime
 
 print("🚀 Offer extraction started...")
@@ -6,60 +8,60 @@ print("🚀 Offer extraction started...")
 INPUT_FILE = "zendesk_articles_raw.xlsx"
 OUTPUT_FILE = "offers_from_zendesk_articles.xlsx"
 
-# =====================================================
-# LOAD DATA
-# =====================================================
 df = pd.read_excel(INPUT_FILE)
 
 if df.empty:
     raise Exception("❌ No article data found")
 
-# Clean column names
-df.columns = df.columns.str.strip().str.lower()
+html_content = df.iloc[0]["content"]
 
-print("📊 Columns detected:", df.columns.tolist())
+# Parse HTML
+soup = BeautifulSoup(html_content, "html.parser")
+
+tables = soup.find_all("table")
+
+if not tables:
+    raise Exception("❌ No tables found in article")
 
 offers = []
 
-# =====================================================
-# EXTRACT OFFERS FROM STRUCTURED DEAL SHEET
-# =====================================================
-for _, row in df.iterrows():
+for table in tables:
 
-    airline = str(row.get("airlines name", "")).strip()
-    iata = str(row.get("iata", "")).strip()
-    validity = str(row.get("validity", "")).strip()
+    df_table = pd.read_html(str(table))[0]
 
-    cabin_map = {
-        "First": row.get("first"),
-        "Business": row.get("bus"),
-        "Premium Economy": row.get("prem. eco"),
-        "Economy": row.get("eco")
-    }
+    df_table.columns = df_table.columns.str.strip().str.lower()
 
-    for cabin, deal in cabin_map.items():
+    for _, row in df_table.iterrows():
 
-        if pd.notna(deal) and str(deal).strip() != "" and float(deal) > 0:
+        airline = str(row.get("airlines name", "")).strip()
+        iata = str(row.get("iata", "")).strip()
 
-            offers.append({
-                "airline": airline,
-                "iata": iata,
-                "cabin_class": cabin,
-                "deal_percent": int(float(deal)),
-                "valid_till": validity,
-                "source": "Zendesk Deal Sheet",
-                "extracted_on": datetime.now().date().isoformat()
-            })
+        cabin_map = {
+            "First": row.get("first"),
+            "Business": row.get("bus"),
+            "Premium Economy": row.get("prem. eco"),
+            "Economy": row.get("eco")
+        }
 
-# =====================================================
-# SAVE OUTPUT
-# =====================================================
+        for cabin, deal in cabin_map.items():
+
+            if pd.notna(deal) and str(deal).strip() != "" and float(deal) > 0:
+
+                offers.append({
+                    "airline": airline,
+                    "iata": iata,
+                    "cabin_class": cabin,
+                    "deal_percent": int(float(deal)),
+                    "valid_till": "",
+                    "source": "Zendesk Article",
+                    "extracted_on": datetime.now().date().isoformat()
+                })
+
 out_df = pd.DataFrame(offers)
 
 if out_df.empty:
     raise Exception("❌ No offers detected")
 
-# Remove duplicates
 out_df = out_df.drop_duplicates()
 
 out_df.to_excel(OUTPUT_FILE, index=False)
