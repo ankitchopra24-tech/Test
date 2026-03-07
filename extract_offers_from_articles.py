@@ -27,11 +27,12 @@ airline_pattern = re.compile(
     re.IGNORECASE
 )
 
-iata_pattern = re.compile(r"\b[A-Z]{2}\b")
+iata_pattern = re.compile(r"\(([A-Z]{2})\)")
 deal_pattern = re.compile(r"(\d{1,2})\s?%")
 cabin_pattern = re.compile(r"(business|economy|first|premium economy)", re.IGNORECASE)
 
-lines = text.split(". ")
+# Better sentence splitting
+lines = re.split(r"[.\n]", text)
 
 for line in lines:
     airline = airline_pattern.search(line)
@@ -43,12 +44,12 @@ for line in lines:
 
         offers.append({
             "airline": airline.group(0).title(),
-            "iata": iata.group(0) if iata else "",
+            "iata": iata.group(1) if iata else "",
             "cabin_class": cabin.group(0).title() if cabin else "Any",
             "deal_percent": int(deal.group(1)),
             "valid_till": "",
             "source": "Zendesk Article",
-            "extracted_on": datetime.datetime.now(datetime.UTC).date().isoformat()
+            "extracted_on": datetime.now().date().isoformat()
         })
 
 # =====================================================
@@ -58,6 +59,9 @@ out_df = pd.DataFrame(offers)
 
 if out_df.empty:
     raise Exception("❌ No offers detected in article text")
+
+# Remove duplicates
+out_df = out_df.drop_duplicates()
 
 out_df.to_excel(OUTPUT_FILE, index=False)
 
