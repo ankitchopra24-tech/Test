@@ -1,6 +1,6 @@
 import pandas as pd
-from bs4 import BeautifulSoup
 import re
+from bs4 import BeautifulSoup
 from datetime import datetime
 
 print("🚀 Offer extraction started...")
@@ -9,7 +9,7 @@ INPUT_FILE = "zendesk_articles_raw.xlsx"
 OUTPUT_FILE = "offers_from_zendesk_articles.xlsx"
 
 # =====================================================
-# LOAD ARTICLE HTML
+# LOAD ARTICLE
 # =====================================================
 
 df = pd.read_excel(INPUT_FILE)
@@ -19,65 +19,51 @@ if df.empty:
 
 html = df.iloc[0]["content"]
 
-print("📄 Parsing Zendesk article HTML...")
+print("📄 Parsing Zendesk article content...")
 
 soup = BeautifulSoup(html, "html.parser")
 
-table = soup.find("table")
+text_blocks = soup.get_text("\n")
 
-if table is None:
-    raise Exception("❌ No table found in Zendesk article")
-
-rows = table.find_all("tr")
+lines = [l.strip() for l in text_blocks.split("\n") if l.strip()]
 
 offers = []
 
+current_airline = None
+current_iata = None
+
 # =====================================================
-# READ TABLE ROWS
+# DETECT AIRLINE ROWS
 # =====================================================
 
-for row in rows[1:]:  # skip header
+for line in lines:
 
-    cols = row.find_all("td")
+    # detect airline code
+    airline_match = re.search(r"\b[A-Z]{2}\b", line)
 
-    if len(cols) < 9:
-        continue
+    if airline_match:
+        current_iata = airline_match.group()
 
-    airline_code = cols[1].get_text(strip=True)
-    airline_name = cols[2].get_text(strip=True)
-    iata = cols[3].get_text(strip=True)
+    # detect airline name
+    if len(line.split()) > 1 and not "%" in line and line.isupper():
+        current_airline = line
 
-    first = cols[4].get_text(strip=True)
-    business = cols[5].get_text(strip=True)
-    prem_eco = cols[6].get_text(strip=True)
-    eco = cols[7].get_text(strip=True)
+    # detect percentage
+    percent_match = re.search(r"(\d+(\.\d+)?)\s*%", line)
 
-    validity = cols[8].get_text(strip=True)
+    if percent_match and current_airline:
 
-    cabin_map = {
-        "First": first,
-        "Business": business,
-        "Premium Economy": prem_eco,
-        "Economy": eco
-    }
+        percent = float(percent_match.group(1))
 
-    for cabin, value in cabin_map.items():
-
-        percent_match = re.search(r"\d+(\.\d+)?", value)
-
-        if percent_match:
-
-            percent = float(percent_match.group())
-
-            offers.append({
-                "airline": airline_name,
-                "iata": airline_code,
-                "cabin_class": cabin,
-                "deal_percent": percent,
-                "valid_till": validity,
-                "source": "Zendesk Article",
-                "extracted_on": datetime.now().date().isoformat()
-            })
+        offers.append({
+            "airline": current_airline,
+            "iata": current_iata,
+            "cabin_class": "Unknown",
+            "deal_percent": percent,
+            "valid_till": "",
+            "source": "Zendesk Article",
+            "extracted_on": datetime.now().date().isoformat()
+        })
 
 # =====================================================
 # SAVE RESULTS
