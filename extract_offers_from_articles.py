@@ -1,6 +1,4 @@
 import pandas as pd
-import re
-from bs4 import BeautifulSoup
 from datetime import datetime
 
 print("🚀 Offer extraction started...")
@@ -8,6 +6,9 @@ print("🚀 Offer extraction started...")
 INPUT_FILE = "zendesk_articles_raw.xlsx"
 OUTPUT_FILE = "offers_from_zendesk_articles.xlsx"
 
+# =====================================================
+# LOAD ARTICLE CONTENT
+# =====================================================
 df = pd.read_excel(INPUT_FILE)
 
 if df.empty:
@@ -15,48 +16,66 @@ if df.empty:
 
 html_content = df.iloc[0]["content"]
 
-# Parse HTML
-soup = BeautifulSoup(html_content, "html.parser")
-
-tables = soup.find_all("table")
+# =====================================================
+# EXTRACT TABLE FROM HTML
+# =====================================================
+tables = pd.read_html(html_content)
 
 if not tables:
     raise Exception("❌ No tables found in article")
 
+deal_table = tables[0]
+
+# Normalize column names
+deal_table.columns = deal_table.columns.str.strip().str.lower()
+
+print("📊 Columns detected:", deal_table.columns.tolist())
+
 offers = []
 
-for table in tables:
+# =====================================================
+# PARSE DEAL SHEET
+# =====================================================
+for _, row in deal_table.iterrows():
 
-    df_table = pd.read_html(str(table))[0]
+    airline = str(row.get("airlines name", "")).strip()
+    iata = str(row.get("iata", "")).strip()
+    validity = str(row.get("validity", "")).strip()
 
-    df_table.columns = df_table.columns.str.strip().str.lower()
+    cabin_map = {
+        "First": row.get("first"),
+        "Business": row.get("bus"),
+        "Premium Economy": row.get("prem. eco"),
+        "Economy": row.get("eco")
+    }
 
-    for _, row in df_table.iterrows():
+    for cabin, deal in cabin_map.items():
 
-        airline = str(row.get("airlines name", "")).strip()
-        iata = str(row.get("iata", "")).strip()
+        if pd.notna(deal):
 
-        cabin_map = {
-            "First": row.get("first"),
-            "Business": row.get("bus"),
-            "Premium Economy": row.get("prem. eco"),
-            "Economy": row.get("eco")
-        }
+            deal_str = str(deal)
 
-        for cabin, deal in cabin_map.items():
+            # Extract numeric percent
+            import re
+            match = re.search(r"\d+(\.\d+)?", deal_str)
 
-            if pd.notna(deal) and str(deal).strip() != "" and float(deal) > 0:
+            if match:
+
+                percent = float(match.group())
 
                 offers.append({
                     "airline": airline,
                     "iata": iata,
                     "cabin_class": cabin,
-                    "deal_percent": int(float(deal)),
-                    "valid_till": "",
+                    "deal_percent": percent,
+                    "valid_till": validity,
                     "source": "Zendesk Article",
                     "extracted_on": datetime.now().date().isoformat()
                 })
 
+# =====================================================
+# SAVE OUTPUT
+# =====================================================
 out_df = pd.DataFrame(offers)
 
 if out_df.empty:
