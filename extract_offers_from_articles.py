@@ -1,5 +1,7 @@
 import pandas as pd
 from datetime import datetime
+import re
+from io import StringIO
 
 print("🚀 Offer extraction started...")
 
@@ -7,8 +9,9 @@ INPUT_FILE = "zendesk_articles_raw.xlsx"
 OUTPUT_FILE = "offers_from_zendesk_articles.xlsx"
 
 # =====================================================
-# LOAD ARTICLE CONTENT
+# LOAD ARTICLE
 # =====================================================
+
 df = pd.read_excel(INPUT_FILE)
 
 if df.empty:
@@ -17,9 +20,10 @@ if df.empty:
 html_content = df.iloc[0]["content"]
 
 # =====================================================
-# EXTRACT TABLE FROM HTML
+# PARSE HTML TABLE
 # =====================================================
-tables = pd.read_html(html_content)
+
+tables = pd.read_html(StringIO(html_content))
 
 if not tables:
     raise Exception("❌ No tables found in article")
@@ -34,8 +38,9 @@ print("📊 Columns detected:", deal_table.columns.tolist())
 offers = []
 
 # =====================================================
-# PARSE DEAL SHEET
+# EXTRACT OFFERS
 # =====================================================
+
 for _, row in deal_table.iterrows():
 
     airline = str(row.get("airlines name", "")).strip()
@@ -55,8 +60,6 @@ for _, row in deal_table.iterrows():
 
             deal_str = str(deal)
 
-            # Extract numeric percent
-            import re
             match = re.search(r"\d+(\.\d+)?", deal_str)
 
             if match:
@@ -74,8 +77,9 @@ for _, row in deal_table.iterrows():
                 })
 
 # =====================================================
-# SAVE OUTPUT
+# SAVE RESULTS
 # =====================================================
+
 out_df = pd.DataFrame(offers)
 
 if out_df.empty:
