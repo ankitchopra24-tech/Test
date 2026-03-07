@@ -8,7 +8,7 @@ print("🚀 Zendesk sync started...")
 # =====================================================
 # CONFIG
 # =====================================================
-ZENDESK_ARTICLE_ID = "8747560108444"
+ZENDESK_ARTICLE_ID = "25959686732828"
 
 ZENDESK_SUBDOMAIN = st.secrets["ZENDESK_SUBDOMAIN"]
 ZENDESK_EMAIL = st.secrets["ZENDESK_EMAIL"]
