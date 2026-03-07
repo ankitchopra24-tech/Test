@@ -48,7 +48,7 @@ for line in lines:
             "deal_percent": int(deal.group(1)),
             "valid_till": "",
             "source": "Zendesk Article",
-            "extracted_on": datetime.utcnow().date().isoformat()
+            "extracted_on": datetime.datetime.now(datetime.UTC).date().isoformat()
         })
 
 # =====================================================
