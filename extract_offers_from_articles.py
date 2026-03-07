@@ -1,7 +1,6 @@
 import pandas as pd
-from datetime import datetime
 import re
-from io import StringIO
+from datetime import datetime
 
 print("🚀 Offer extraction started...")
 
@@ -17,67 +16,40 @@ df = pd.read_excel(INPUT_FILE)
 if df.empty:
     raise Exception("❌ No article data found")
 
-html_content = df.iloc[0]["content"]
+content = df.iloc[0]["content"]
 
-# =====================================================
-# PARSE HTML TABLE
-# =====================================================
-
-tables = pd.read_html(StringIO(html_content))
-
-if not tables:
-    raise Exception("❌ No tables found in article")
-
-deal_table = tables[0]
-
-# Normalize column names
-deal_table.columns = deal_table.columns.str.strip().str.lower()
-
-print("📊 Columns detected:", deal_table.columns.tolist())
+print("📄 Parsing article content...")
 
 offers = []
 
-# =====================================================
-# EXTRACT OFFERS
-# =====================================================
+lines = content.split("\n")
 
-for _, row in deal_table.iterrows():
+for line in lines:
 
-    airline = str(row.get("airlines name", "")).strip()
-    iata = str(row.get("iata", "")).strip()
-    validity = str(row.get("validity", "")).strip()
+    # Look for airline code + percentage
+    percent_match = re.search(r"(\d+(\.\d+)?)\s*%", line)
 
-    cabin_map = {
-        "First": row.get("first"),
-        "Business": row.get("bus"),
-        "Premium Economy": row.get("prem. eco"),
-        "Economy": row.get("eco")
-    }
+    if percent_match:
 
-    for cabin, deal in cabin_map.items():
+        percent = float(percent_match.group(1))
 
-        if pd.notna(deal):
+        # detect airline code
+        airline_match = re.search(r"\b[A-Z]{2}\b", line)
 
-            deal_str = str(deal)
+        airline_code = airline_match.group(0) if airline_match else ""
 
-            match = re.search(r"\d+(\.\d+)?", deal_str)
-
-            if match:
-
-                percent = float(match.group())
-
-                offers.append({
-                    "airline": airline,
-                    "iata": iata,
-                    "cabin_class": cabin,
-                    "deal_percent": percent,
-                    "valid_till": validity,
-                    "source": "Zendesk Article",
-                    "extracted_on": datetime.now().date().isoformat()
-                })
+        offers.append({
+            "airline": airline_code,
+            "iata": airline_code,
+            "cabin_class": "Unknown",
+            "deal_percent": percent,
+            "valid_till": "",
+            "source": "Zendesk Article",
+            "extracted_on": datetime.now().date().isoformat()
+        })
 
 # =====================================================
-# SAVE RESULTS
+# SAVE OUTPUT
 # =====================================================
 
 out_df = pd.DataFrame(offers)
