@@ -7,6 +7,9 @@ import pandas as pd
 import difflib
 from datetime import datetime
 
+OFFERS_FILE = "offers_from_zendesk_articles.xlsx"
+SYNC_MARKER = "last_sync.txt"
+
 # =====================================================
 # CONFIG
 # =====================================================
