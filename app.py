@@ -136,23 +136,63 @@ for _, row in df.iterrows():
         AIRLINE_LOOKUP[iata] = airline
 
 # =====================================================
-# NLP PARSER (DYNAMIC)
+# SMART NLP SEARCH ENGINE
 # =====================================================
-def parse_query(query: str):
-    query = query.lower()
-    airline = cabin = None
 
-    for key, value in AIRLINE_LOOKUP.items():
-        if f" {key} " in f" {query} ":
-            airline = value
-            break
+def detect_cabin(query):
+    q = query.lower()
 
-    if any(w in query for w in ["business", "biz", "j"]):
-        cabin = "business"
-    elif any(w in query for w in ["economy", "eco", "y"]):
-        cabin = "economy"
+    if "business" in q or "biz" in q:
+        return "business"
 
-    return airline, cabin
+    if "economy" in q or "eco" in q:
+        return "economy"
+
+    if "first" in q:
+        return "first"
+
+    if "premium" in q:
+        return "premium economy"
+
+    return None
+
+
+def detect_airline(query, df):
+    q = query.lower()
+
+    for airline in df["airline"].unique():
+        if airline.lower() in q:
+            return airline
+
+    for code in df["iata"].unique():
+        if str(code).lower() in q:
+            return code
+
+    return None
+
+
+def score_offer(row, airline, cabin, query):
+
+    score = 0
+    text = f"{row['airline']} {row['iata']} {row['cabin_class']}".lower()
+
+    # Airline match
+    if airline:
+        if airline.lower() in text:
+            score += 4
+
+    # Cabin match
+    if cabin:
+        if cabin.lower() in row["cabin_class"].lower():
+            score += 3
+
+    # Deal boost
+    score += float(row["deal_percent"]) / 10
+
+    # Fuzzy similarity
+    score += difflib.SequenceMatcher(None, query, text).ratio()
+
+    return score
 
 # =====================================================
 # SCORING FUNCTION
@@ -173,59 +213,75 @@ def score_row(row, airline, cabin, query):
 # USER QUERY
 # =====================================================
 query = st.text_input(
-    "Ask about airline offers (e.g. 'Best EK business deal')"
+    "Ask about airline offers (e.g. 'best business class deal')"
 )
 
 if query:
-    airline, cabin = parse_query(query)
+
+    airline = detect_airline(query, df)
+    cabin = detect_cabin(query)
 
     df["score"] = df.apply(
-        lambda r: score_row(r, airline, cabin, query.lower()),
+        lambda r: score_offer(r, airline, cabin, query.lower()),
         axis=1
     )
 
-    results = df[df["score"] > 1.2].sort_values(
+    results = df.sort_values(
         by=["score", "deal_percent"],
         ascending=False
     )
+
+    results = results.head(20)
 
     if results.empty:
         st.warning("⚠️ No matching offers found")
         st.stop()
 
-    # =================================================
+    # =========================
     # BEST OFFER
-    # =================================================
+    # =========================
     best = results.iloc[0]
+
     st.markdown("## 🏆 Best Available Offer")
+
     st.success(
         f"""
-✈️ **{best['airline']} ({best['iata']})**  
-Cabin: **{best['cabin_class']}**  
-Deal: **{best['deal_percent']}%**  
+✈️ **{best['airline']} ({best['iata']})**
+
+Cabin: **{best['cabin_class']}**
+
+Deal: **{best['deal_percent']}%**
+
 Valid Till: **{best['valid_till']}**
 """
     )
 
-    # =================================================
-    # ALL RESULTS
-    # =================================================
-    st.markdown("## ✈️ All Matching Offers")
+    # =========================
+    # ALL MATCHES
+    # =========================
+
+    st.markdown("## ✈️ Top Matching Offers")
 
     for i, row in results.iterrows():
+
         offer_text = f"""
 ✈️ {row['airline']} ({row['iata']})
 Cabin: {row['cabin_class']}
 Deal: {row['deal_percent']}%
 Valid Till: {row['valid_till']}
-Source: Zendesk Article {ZENDESK_ARTICLE_ID}
 """
 
         st.markdown("---")
         st.markdown(f"### ✈️ {row['airline']} ({row['iata']})")
 
+        c1, c2, c3 = st.columns(3)
+
+        c1.write(f"**Cabin**\n{row['cabin_class']}")
+        c2.write(f"**Deal**\n{row['deal_percent']}%")
+        c3.write(f"**Valid Till**\n{row['valid_till']}")
+
         st.text_area(
-            "📋 Copy offer details",
+            "📋 Copy offer",
             value=offer_text.strip(),
             height=120,
             key=f"copy_{i}"
