@@ -1,5 +1,4 @@
 import pandas as pd
-import re
 from datetime import datetime
 
 print("🚀 Offer extraction started...")
@@ -7,64 +6,43 @@ print("🚀 Offer extraction started...")
 INPUT_FILE = "zendesk_articles_raw.xlsx"
 OUTPUT_FILE = "offers_from_zendesk_articles.xlsx"
 
-# =====================================================
-# LOAD RAW ARTICLE
-# =====================================================
 df = pd.read_excel(INPUT_FILE)
 
 if df.empty:
     raise Exception("❌ No article data found")
 
-text = df.iloc[0]["content"].lower()
-
 offers = []
 
-# =====================================================
-# SIMPLE NLP REGEX (AIRLINE AGNOSTIC)
-# =====================================================
-airline_pattern = re.compile(
-    r"(emirates|air india|air france|klm|delta|lufthansa|qatar|british airways|singapore airlines|[a-z ]+ airlines?)",
-    re.IGNORECASE
-)
+for _, row in df.iterrows():
 
-iata_pattern = re.compile(r"\(([A-Z]{2})\)")
-deal_pattern = re.compile(r"(\d{1,2})\s?%")
-cabin_pattern = re.compile(r"(business|economy|first|premium economy)", re.IGNORECASE)
+    airline = str(row["Airlines Name"]).strip()
+    iata = str(row["IATA"]).strip()
+    validity = str(row["Validity"])
 
-# Better sentence splitting
-lines = re.split(r"[.\n]", text)
+    cabin_map = {
+        "First": row["First"],
+        "Business": row["Bus"],
+        "Premium Economy": row["Prem. eco"],
+        "Economy": row["Eco"]
+    }
 
-for line in lines:
-    airline = airline_pattern.search(line)
-    deal = deal_pattern.search(line)
+    for cabin, deal in cabin_map.items():
 
-    if airline and deal:
-        cabin = cabin_pattern.search(line)
-        iata = iata_pattern.search(line.upper())
+        if pd.notna(deal) and deal != 0:
 
-        offers.append({
-            "airline": airline.group(0).title(),
-            "iata": iata.group(1) if iata else "",
-            "cabin_class": cabin.group(0).title() if cabin else "Any",
-            "deal_percent": int(deal.group(1)),
-            "valid_till": "",
-            "source": "Zendesk Article",
-            "extracted_on": datetime.now().date().isoformat()
-        })
+            offers.append({
+                "airline": airline,
+                "iata": iata,
+                "cabin_class": cabin,
+                "deal_percent": int(deal),
+                "valid_till": validity,
+                "source": "Zendesk Deal Sheet",
+                "extracted_on": datetime.now().date().isoformat()
+            })
 
-# =====================================================
-# SAVE OUTPUT
-# =====================================================
 out_df = pd.DataFrame(offers)
-
-if out_df.empty:
-    raise Exception("❌ No offers detected in article text")
-
-# Remove duplicates
-out_df = out_df.drop_duplicates()
 
 out_df.to_excel(OUTPUT_FILE, index=False)
 
 print(f"✅ Extracted {len(out_df)} offers")
-print(f"📄 Saved to {OUTPUT_FILE}")
 print("🏁 Offer extraction finished")
