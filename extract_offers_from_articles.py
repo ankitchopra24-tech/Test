@@ -23,50 +23,48 @@ print("📄 Parsing Zendesk article content...")
 
 soup = BeautifulSoup(html, "html.parser")
 
-text_blocks = soup.get_text("\n")
+# extract all visible text
+text = soup.get_text("\n")
 
-lines = [l.strip() for l in text_blocks.split("\n") if l.strip()]
+lines = [l.strip() for l in text.split("\n") if l.strip()]
 
 offers = []
 
 current_airline = None
 current_iata = None
 
-# =====================================================
-# DETECT AIRLINE ROWS
-# =====================================================
-
 for line in lines:
 
     # detect airline code
-    airline_match = re.search(r"\b[A-Z]{2}\b", line)
+    iata_match = re.fullmatch(r"[A-Z]{2}", line)
+    if iata_match:
+        current_iata = line
+        continue
 
-    if airline_match:
-        current_iata = airline_match.group()
+    # detect airline name (usually uppercase words)
+    if line.isupper() and len(line) > 3:
+        current_airline = line.title()
+        continue
 
-    # detect airline name
-    if len(line.split()) > 1 and not "%" in line and line.isupper():
-        current_airline = line
+    # detect percentage deals
+    deal_match = re.search(r"(\d+(\.\d+)?)\s*%", line)
 
-    # detect percentage
-    percent_match = re.search(r"(\d+(\.\d+)?)\s*%", line)
+    if deal_match and current_airline:
 
-    if percent_match and current_airline:
-
-        percent = float(percent_match.group(1))
+        deal = float(deal_match.group(1))
 
         offers.append({
             "airline": current_airline,
             "iata": current_iata,
             "cabin_class": "Unknown",
-            "deal_percent": percent,
+            "deal_percent": deal,
             "valid_till": "",
             "source": "Zendesk Article",
             "extracted_on": datetime.now().date().isoformat()
         })
 
 # =====================================================
-# SAVE RESULTS
+# CLEAN RESULTS
 # =====================================================
 
 out_df = pd.DataFrame(offers)
@@ -74,10 +72,16 @@ out_df = pd.DataFrame(offers)
 if out_df.empty:
     raise Exception("❌ No offers extracted")
 
-out_df = out_df.drop_duplicates()
+# keep best deal per airline
+out_df = out_df.sort_values("deal_percent", ascending=False)
+out_df = out_df.drop_duplicates(subset=["airline","iata"])
+
+# =====================================================
+# SAVE
+# =====================================================
 
 out_df.to_excel(OUTPUT_FILE, index=False)
 
-print(f"✅ Extracted {len(out_df)} offers")
+print(f"✅ Extracted {len(out_df)} airline offers")
 print(f"📄 Saved to {OUTPUT_FILE}")
 print("🏁 Offer extraction finished")
