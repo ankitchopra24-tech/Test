@@ -1,5 +1,4 @@
 import pandas as pd
-import re
 from bs4 import BeautifulSoup
 from datetime import datetime
 
@@ -8,9 +7,9 @@ print("🚀 Offer extraction started...")
 INPUT_FILE = "zendesk_articles_raw.xlsx"
 OUTPUT_FILE = "offers_from_zendesk_articles.xlsx"
 
-# -------------------------------------------------
-# Load article HTML
-# -------------------------------------------------
+# -----------------------------------
+# LOAD ARTICLE
+# -----------------------------------
 
 df = pd.read_excel(INPUT_FILE)
 
@@ -19,67 +18,76 @@ if df.empty:
 
 html = df.iloc[0]["content"]
 
-print("📄 Parsing Zendesk article content...")
+print("📄 Parsing Zendesk article HTML...")
 
 soup = BeautifulSoup(html, "html.parser")
 
-text = soup.get_text("\n")
+# -----------------------------------
+# FIND ALL ROWS
+# -----------------------------------
 
-lines = [l.strip() for l in text.split("\n") if l.strip()]
+rows = soup.find_all(["tr","p","div"])
 
 offers = []
 
-current_iata = None
-current_airline = None
+for r in rows:
 
-# -------------------------------------------------
-# Extract rows
-# -------------------------------------------------
+    text = r.get_text(" ", strip=True)
 
-for line in lines:
-
-    # detect IATA (AA, JL, QR etc.)
-    iata_match = re.fullmatch(r"[A-Z]{2}", line)
-    if iata_match:
-        current_iata = line
+    if "%" not in text:
         continue
+
+    tokens = text.split()
+
+    # detect IATA
+    iata = None
+    for t in tokens:
+        if len(t) == 2 and t.isupper():
+            iata = t
+            break
 
     # detect airline name
-    if current_iata and not "%" in line and len(line.split()) <= 3:
-        current_airline = line.title()
-        continue
+    airline = None
+    if iata:
+        idx = tokens.index(iata)
+        if idx + 1 < len(tokens):
+            airline = tokens[idx + 1]
 
     # detect percentage
-    percent_match = re.search(r"(\d+(\.\d+)?)\s*%", line)
+    deal = None
+    for t in tokens:
+        if "%" in t:
+            try:
+                deal = float(t.replace("%",""))
+            except:
+                pass
 
-    if percent_match and current_airline:
-
-        percent = float(percent_match.group(1))
+    if airline and deal:
 
         offers.append({
-            "airline": current_airline,
-            "iata": current_iata,
+            "airline": airline.title(),
+            "iata": iata,
             "cabin_class": "Unknown",
-            "deal_percent": percent,
+            "deal_percent": deal,
             "valid_till": "",
             "source": "Zendesk Article",
             "extracted_on": datetime.now().date().isoformat()
         })
 
-# -------------------------------------------------
-# Final dataset
-# -------------------------------------------------
+# -----------------------------------
+# SAVE OUTPUT
+# -----------------------------------
 
 out_df = pd.DataFrame(offers)
 
 if out_df.empty:
-    raise Exception("❌ No offers extracted")
+    raise Exception("❌ No offers extracted from article")
 
 out_df = out_df.sort_values("deal_percent", ascending=False)
-out_df = out_df.drop_duplicates(subset=["airline", "iata"])
+out_df = out_df.drop_duplicates(subset=["iata"])
 
 out_df.to_excel(OUTPUT_FILE, index=False)
 
-print(f"✅ Extracted {len(out_df)} offers")
+print(f"✅ Extracted {len(out_df)} airline offers")
 print(f"📄 Saved to {OUTPUT_FILE}")
 print("🏁 Offer extraction finished")
